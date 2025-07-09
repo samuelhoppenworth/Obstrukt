@@ -1,30 +1,96 @@
+// src/helpers/InputHandler.js
+
 export default class InputHandler {
-    constructor(scene, renderer, gameHandler) {
+    /**
+     * @param {Phaser.Scene} scene
+     */
+    constructor(scene) {
         this.scene = scene;
-        this.renderer = renderer;
-        this.gameHandler = gameHandler;
-
-        // Interaction state (e.g., selected pawn, hovered wall, etc.)
-        this.selectedPawn = null;
-        // ...
-
-        this.registerInputListeners();
+        this.currentWallOrientation = 'horizontal';
+        this.lastHoveredWall = null; // Track to avoid spamming events
     }
 
-    registerInputListeners() {}
-    registerPawnClick() {}
-    registerCellClick() {}
-    registerWallHover() {}
-    registerWallClick() {}
+    setupInputListeners() {
+        this.scene.input.on('pointerdown', this.handlePointerDown, this);
+        this.scene.input.on('pointermove', this.handlePointerMove, this);
 
-    getBoardCoordinates(screenX, screenY) {
-        const { CELL_SIZE, WALL_THICKNESS, HORI_BOARD_OFFSET, VERT_BOARD_OFFSET, BOARD_SIZE } = this.renderer;
-        const x = Math.floor((screenX - VERT_BOARD_OFFSET) / (CELL_SIZE + WALL_THICKNESS));
-        const y = Math.floor((screenY - HORI_BOARD_OFFSET) / (CELL_SIZE + WALL_THICKNESS));
+        // Switch wall orientation with a right-click
+        this.scene.input.on('pointerdown', (pointer) => {
+            if (pointer.rightButtonDown()) {
+                this.currentWallOrientation = (this.currentWallOrientation === 'horizontal') ? 'vertical' : 'horizontal';
+                // Force a highlight update by re-firing the hover event
+                this.handlePointerMove(pointer); 
+            }
+        });
+        this.scene.input.mouse.disableContextMenu();
+    }
 
-        if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE) {
-            return { x, y };
+    handlePointerDown(pointer) {
+        if (pointer.rightButtonDown()) return; // Handled separately
+
+        const location = this.#getBoardLocation(pointer.x, pointer.y);
+        if (!location) return;
+
+        if (location.type === 'cell') {
+            this.scene.events.emit('pawn-move-requested', { row: location.row, col: location.col });
+        } else if (location.type === 'wall') {
+            this.scene.events.emit('wall-placement-requested', {
+                row: location.row,
+                col: location.col,
+                orientation: location.orientation
+            });
         }
+    }
+
+    handlePointerMove(pointer) {
+        const location = this.#getBoardLocation(pointer.x, pointer.y);
+
+        if (location && location.type === 'wall') {
+            const hoverKey = `${location.row}-${location.col}-${location.orientation}`;
+            // Emit only if the hover location changes
+            if (this.lastHoveredWall !== hoverKey) {
+                this.scene.events.emit('wall-hover-in', { ...location });
+                this.lastHoveredWall = hoverKey;
+            }
+        } else {
+            // Emit only if we were previously hovering over a wall
+            if (this.lastHoveredWall !== null) {
+                this.scene.events.emit('wall-hover-out');
+                this.lastHoveredWall = null;
+            }
+        }
+    }
+
+    #getBoardLocation(pixelX, pixelY) {
+        const { startX, startY, cellSize, gapSize, boardSize } = this.scene.renderer; // Get renderer props from scene
+        const block = cellSize + gapSize;
+        
+        const relativeX = pixelX - startX;
+        const relativeY = pixelY - startY;
+
+        const col = Math.floor(relativeX / block);
+        const row = Math.floor(relativeY / block);
+
+        const xInBlock = relativeX % block;
+        const yInBlock = relativeY % block;
+
+        const onCell = xInBlock < cellSize && yInBlock < cellSize;
+        if (onCell) {
+            if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return null;
+            return { type: 'cell', row, col };
+        }
+
+        const onVerticalGap = xInBlock >= cellSize && yInBlock < cellSize;
+        const onHorizontalGap = xInBlock < cellSize && yInBlock >= cellSize;
+        
+        const wallRow = Math.floor((relativeY - cellSize / 2) / block);
+        const wallCol = Math.floor((relativeX - cellSize / 2) / block);
+
+        if (onHorizontalGap || onVerticalGap) {
+            if (wallRow < 0 || wallRow >= boardSize - 1 || wallCol < 0 || wallCol >= boardSize - 1) return null;
+            return { type: 'wall', row: wallRow, col: wallCol, orientation: this.currentWallOrientation };
+        }
+        
         return null;
     }
 }
