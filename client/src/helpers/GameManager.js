@@ -1,26 +1,40 @@
+// src/helpers/GameManager.js
+
 export default class GameManager {
     constructor(scene, config) {
-        this.scene = scene; // For emitting events
+        this.scene = scene;
+        this.config = config;
         this.boardSize = config.boardSize;
-        this.playerTurn = 'p1';
-        this.pawnPositions = {
-            p1: { ...config.p1Start },
-            p2: { ...config.p2Start }
-        };
-        this.wallsLeft = {
-            p1: config.numWalls,
-            p2: config.numWalls
-        };
+        this.numPlayers = config.numPlayers;
+        this.players = config.players.slice(0, this.numPlayers);
+
+        this.playerTurnIndex = 0; // Use an index to track turns
+        
+        // Use objects to store player-specific data, keyed by player ID
+        this.pawnPositions = this.players.reduce((acc, player) => {
+            acc[player.id] = { ...player.startPos };
+            return acc;
+        }, {});
+
+        this.wallsLeft = this.players.reduce((acc, player) => {
+            acc[player.id] = config.wallsPerPlayer;
+            return acc;
+        }, {});
+
         this.placedWalls = [];
-        this.gameState = 'active'; // 'active', 'p1_wins', 'p2_wins'
+        this.gameState = 'active'; // 'active', 'p1_wins', etc.
         this.availablePawnMoves = [];
 
         this.calculateLegalPawnMoves();
     }
 
+    getCurrentPlayer() {
+        return this.players[this.playerTurnIndex];
+    }
+
     getGameState() {
         return {
-            playerTurn: this.playerTurn,
+            playerTurn: this.getCurrentPlayer().id,
             gameState: this.gameState,
             pawnPositions: JSON.parse(JSON.stringify(this.pawnPositions)),
             wallsLeft: { ...this.wallsLeft },
@@ -30,133 +44,138 @@ export default class GameManager {
     }
 
     movePawn(row, col) {
+        if (this.gameState !== 'active') return;
+
         const isLegal = this.availablePawnMoves.some(move => move.row === row && move.col === col);
         if (!isLegal) {
             console.log("Illegal pawn move attempted.");
             return;
         }
 
-        this.pawnPositions[this.playerTurn] = { row, col };
+        const currentPlayer = this.getCurrentPlayer();
+        this.pawnPositions[currentPlayer.id] = { row, col };
 
-        // Check for win condition
-        if (this.playerTurn === 'p1' && row === this.boardSize - 1) {
-            this.gameState = 'p1_wins';
-        } else if (this.playerTurn === 'p2' && row === 0) {
-            this.gameState = 'p2_wins';
+        // Check for win condition using the player's goal function from config
+        if (currentPlayer.goalCondition(row, col, this.boardSize)) {
+            this.gameState = `${currentPlayer.id}_wins`;
+            console.log(`${currentPlayer.id} wins!`);
         }
 
         if (this.gameState === 'active') {
             this.#switchTurn();
         }
-        
-        // Announce that the state has changed
+
         this.scene.events.emit('game-state-updated', this.getGameState());
     }
 
     placeWall({ row, col, orientation }) {
+        if (this.gameState !== 'active') return;
+        
         if (!this.isWallPlacementLegal(row, col, orientation)) {
             console.log("Illegal wall placement attempted.");
             return;
         }
         
+        const currentPlayerId = this.getCurrentPlayer().id;
         this.placedWalls.push({ row, col, orientation });
-        this.wallsLeft[this.playerTurn]--;
+        this.wallsLeft[currentPlayerId]--;
         this.#switchTurn();
-
-        // Announce that the state has changed
         this.scene.events.emit('game-state-updated', this.getGameState());
     }
 
     #switchTurn() {
-        this.playerTurn = (this.playerTurn === 'p1') ? 'p2' : 'p1';
+        this.playerTurnIndex = (this.playerTurnIndex + 1) % this.numPlayers;
         this.calculateLegalPawnMoves();
+        console.log("Switched to %s's turn", this.getCurrentPlayer().id);
     }
 
     calculateLegalPawnMoves() {
         this.availablePawnMoves = [];
-        const currentPlayer = this.playerTurn;
-        const opponentPlayer = (currentPlayer === 'p1') ? 'p2' : 'p1';
-        const { row, col } = this.pawnPositions[currentPlayer];
-        const opponentPos = this.pawnPositions[opponentPlayer];
+        const currentPlayer = this.getCurrentPlayer();
+        const { row, col } = this.pawnPositions[currentPlayer.id];
+
+        const opponentPositions = this.players
+            .filter(p => p.id !== currentPlayer.id)
+            .map(p => this.pawnPositions[p.id]);
 
         const potentialMoves = [
-            { r: row - 1, c: col }, // Up
-            { r: row + 1, c: col }, // Down
-            { r: row, c: col - 1 }, // Left
-            { r: row, c: col + 1 }, // Right
+            { r: row - 1, c: col }, { r: row + 1, c: col },
+            { r: row, c: col - 1 }, { r: row, c: col + 1 },
         ];
 
         for (const move of potentialMoves) {
-            const isOutOfBounds = move.r < 0 || move.r >= this.boardSize || move.c < 0 || move.c >= this.boardSize;
-            if (isOutOfBounds || this.#isWallBetween(row, col, move.r, move.c)) continue;
-
-            // Check if opponent is in the target cell
-            if (move.r === opponentPos.row && move.c === opponentPos.col) {
-                // Handle jumps
-                const jumpRow = opponentPos.row + (opponentPos.row - row);
-                const jumpCol = opponentPos.col + (opponentPos.col - col);
+            // Check move bounds and obstructing walls
+            if (move.r < 0 || move.r >= this.boardSize || move.c < 0 || move.c >= this.boardSize || this.#isWallBetween(row, col, move.r, move.c)) continue;
+            
+            // Check if jumps are possible
+            const opponentInCell = opponentPositions.find(p => p.row === move.r && p.col === move.c);
+            if (opponentInCell) {
+                const jumpRow = opponentInCell.row + (opponentInCell.row - row);
+                const jumpCol = opponentInCell.col + (opponentInCell.col - col);
                 
-                // Check if space behind opponent is clear for a straight jump
-                if (!this.#isWallBetween(opponentPos.row, opponentPos.col, jumpRow, jumpCol) && jumpRow >= 0 && jumpRow < this.boardSize && jumpCol >= 0 && jumpCol < this.boardSize) {
+                // Check if the destination is occupied by another opponent.
+                const isDestinationOccupied = opponentPositions.some(p => p.row === jumpRow && p.col === jumpCol);
+
+                if (!this.#isWallBetween(opponentInCell.row, opponentInCell.col, jumpRow, jumpCol) &&
+                    jumpRow >= 0 && jumpRow < this.boardSize &&
+                    jumpCol >= 0 && jumpCol < this.boardSize &&
+                    !isDestinationOccupied) {
                     this.availablePawnMoves.push({ row: jumpRow, col: jumpCol });
-                } else {
-                    // Handle diagonal jumps if straight jump is blocked
-                    const dirRow = opponentPos.row - row; // e.g., 1, -1, 0
-                    const dirCol = opponentPos.col - col; // e.g., 1, -1, 0
-                    if(dirRow === 0){ // Pawns are aligned horizontally
-                        if(!this.#isWallBetween(opponentPos.row, opponentPos.col, opponentPos.row - 1, opponentPos.col)) this.availablePawnMoves.push({ row: opponentPos.row - 1, col: opponentPos.col });
-                        if(!this.#isWallBetween(opponentPos.row, opponentPos.col, opponentPos.row + 1, opponentPos.col)) this.availablePawnMoves.push({ row: opponentPos.row + 1, col: opponentPos.col });
-                    } else if (dirCol === 0){ // Pawns are aligned vertically
-                        if(!this.#isWallBetween(opponentPos.row, opponentPos.col, opponentPos.row, opponentPos.col - 1)) this.availablePawnMoves.push({ row: opponentPos.row, col: opponentPos.col - 1 });
-                        if(!this.#isWallBetween(opponentPos.row, opponentPos.col, opponentPos.row, opponentPos.col + 1)) this.availablePawnMoves.push({ row: opponentPos.row, col: opponentPos.col + 1 });
+                } else { // Diagonal jumps are only possible if the straight jump is blocked (by wall OR another pawn)
+                    const dirRow = opponentInCell.row - row;
+                    const dirCol = opponentInCell.col - col;
+                    if(dirRow === 0){ // Horizontal alignment
+                        if(!this.#isWallBetween(opponentInCell.row, opponentInCell.col, opponentInCell.row - 1, opponentInCell.col)) this.availablePawnMoves.push({ row: opponentInCell.row - 1, col: opponentInCell.col });
+                        if(!this.#isWallBetween(opponentInCell.row, opponentInCell.col, opponentInCell.row + 1, opponentInCell.col)) this.availablePawnMoves.push({ row: opponentInCell.row + 1, col: opponentInCell.col });
+                    } else if (dirCol === 0){ // Vertical alignment
+                        if(!this.#isWallBetween(opponentInCell.row, opponentInCell.col, opponentInCell.row, opponentInCell.col - 1)) this.availablePawnMoves.push({ row: opponentInCell.row, col: opponentInCell.col - 1 });
+                        if(!this.#isWallBetween(opponentInCell.row, opponentInCell.col, opponentInCell.row, opponentInCell.col + 1)) this.availablePawnMoves.push({ row: opponentInCell.row, col: opponentInCell.col + 1 });
                     }
                 }
             } else {
                 this.availablePawnMoves.push({ row: move.r, col: move.c });
             }
         }
-        // Filter out any invalid moves that might land on the opponent if not part of a valid jump
-        this.availablePawnMoves = this.availablePawnMoves.filter(m => (m.row !== opponentPos.row || m.col !== opponentPos.col) && (m.row >= 0 && m.row < this.boardSize && m.col >= 0 && m.col < this.boardSize));
+        // Filter out any diagonal jumps that land on a third pawn
+        this.availablePawnMoves = this.availablePawnMoves.filter(m => 
+            !opponentPositions.some(op => op.row === m.row && op.col === m.col) &&
+            m.row >= 0 && m.row < this.boardSize && m.col >= 0 && m.col < this.boardSize
+        );
     }
 
     isWallPlacementLegal(row, col, orientation) {
-        // 1. Check if player has walls left
-        if (this.wallsLeft[this.playerTurn] <= 0) return false;
-
-        // 2. Check if wall is within bounds (wall slots are 0-7)
+        const currentPlayerId = this.getCurrentPlayer().id;
+        if (this.wallsLeft[currentPlayerId] <= 0) return false;
         if (row < 0 || row > this.boardSize - 2 || col < 0 || col > this.boardSize - 2) return false;
 
-        // 3. Check for overlapping walls
         for (const wall of this.placedWalls) {
-            // Exact same slot
             if (wall.row === row && wall.col === col) return false;
-            // Overlapping horizontal walls
             if (orientation === 'horizontal' && wall.orientation === 'horizontal' && wall.row === row && Math.abs(wall.col - col) < 2) return false;
-            // Overlapping vertical walls
             if (orientation === 'vertical' && wall.orientation === 'vertical' && wall.col === col && Math.abs(wall.row - row) < 2) return false;
         }
 
-        // 4. Check if the wall traps a player
+        // Check if the wall traps any player
         const tempWall = { row, col, orientation };
         this.placedWalls.push(tempWall);
 
-        const p1HasPath = this.#pathExistsFor(this.pawnPositions.p1, (r) => r === this.boardSize - 1);
-        const p2HasPath = this.#pathExistsFor(this.pawnPositions.p2, (r) => r === 0);
+        const allPlayersHavePath = this.players.every(player => 
+            this.#pathExistsFor(this.pawnPositions[player.id], (r, c) => player.goalCondition(r, c, this.boardSize))
+        );
 
-        this.placedWalls.pop(); // Backtrack: remove the temporary wall
+        this.placedWalls.pop(); // Backtrack
         
-        return p1HasPath && p2HasPath;
+        return allPlayersHavePath;
     }
 
     #isWallBetween(r1, c1, r2, c2) {
-        if (r1 === r2) { // Horizontal move
+        if (r1 === r2) {
             const wallCol = Math.min(c1, c2);
             return this.placedWalls.some(w => w.orientation === 'vertical' && w.col === wallCol && (w.row === r1 || w.row === r1 - 1));
-        } else if (c1 === c2) { // Vertical move
+        } else if (c1 === c2) {
             const wallRow = Math.min(r1, r2);
             return this.placedWalls.some(w => w.orientation === 'horizontal' && w.row === wallRow && (w.col === c1 || w.col === c1 - 1));
         }
-        return false; // Not an adjacent move
+        return false;
     }
 
     #pathExistsFor(startPos, isGoal) {

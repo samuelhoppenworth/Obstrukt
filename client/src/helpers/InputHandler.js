@@ -6,7 +6,7 @@ export default class InputHandler {
      */
     constructor(scene) {
         this.scene = scene;
-        this.currentWallOrientation = 'horizontal';
+        // No longer need to track current wall orientation
         this.lastHoveredWall = null; // Track to avoid spamming events
     }
 
@@ -14,19 +14,13 @@ export default class InputHandler {
         this.scene.input.on('pointerdown', this.handlePointerDown, this);
         this.scene.input.on('pointermove', this.handlePointerMove, this);
 
-        // Switch wall orientation with a right-click
-        this.scene.input.on('pointerdown', (pointer) => {
-            if (pointer.rightButtonDown()) {
-                this.currentWallOrientation = (this.currentWallOrientation === 'horizontal') ? 'vertical' : 'horizontal';
-                // Force a highlight update by re-firing the hover event
-                this.handlePointerMove(pointer); 
-            }
-        });
+        // The right-click listener for toggling wall orientation has been removed.
+        
         this.scene.input.mouse.disableContextMenu();
     }
 
     handlePointerDown(pointer) {
-        if (pointer.rightButtonDown()) return; // Handled separately
+        if (pointer.rightButtonDown()) return; // Ignore right-clicks for placement
 
         const location = this.#getBoardLocation(pointer.x, pointer.y);
         if (!location) return;
@@ -88,7 +82,9 @@ export default class InputHandler {
 
         if (onHorizontalGap || onVerticalGap) {
             if (wallRow < 0 || wallRow >= boardSize - 1 || wallCol < 0 || wallCol >= boardSize - 1) return null;
-            return { type: 'wall', row: wallRow, col: wallCol, orientation: this.currentWallOrientation };
+            
+            const orientation = onHorizontalGap ? 'horizontal' : 'vertical';
+            return { type: 'wall', row: wallRow, col: wallCol, orientation: orientation };
         }
         
         return null;

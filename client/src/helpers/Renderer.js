@@ -1,20 +1,19 @@
+// src/helpers/Renderer.js
+
 export default class Renderer {
-    constructor(scene) {
+    constructor(scene, config) {
         this.scene = scene;
-        this.boardSize = 9;
+        this.boardSize = config.boardSize;
         this.cellSize = 80;
         this.gapSize = 20;
 
-        // Centralized color theme
-        this.colors = {
-            p1: 0xff00a6,     // Magenta
-            p2: 0x00fff7,     // Cyan
-            wall: 0xffff00,   // Bright Yellow
-            board: 0x333333,
-            legalMove: 0x55ff55,
-            legalWall: 0x00ff00,
-            illegalWall: 0xff0000,
-        };
+        // --- NEW: Get colors from config ---
+        this.colors = { ...config.colors }; // Copy board/wall colors
+        // Create a map of player IDs to their colors for easy lookup
+        this.playerColors = config.players.reduce((acc, player) => {
+            acc[player.id] = player.color;
+            return acc;
+        }, {});
              
         this.pawnGroup = this.scene.add.group();
         this.wallGroup = this.scene.add.group();
@@ -22,20 +21,17 @@ export default class Renderer {
         this.highlightedCellGroup = this.scene.add.group();
         this.highlightedWall = this.scene.add.graphics();
 
-        this.startX;
-        this.startY;
-    }
-
-    drawStaticBoard() {
-        const graphics = this.scene.add.graphics();
-        graphics.fillStyle(this.colors.board, 1);
-
         const gridTotalDimension = this.boardSize * this.cellSize + (this.boardSize - 1) * this.gapSize;
         const canvasWidth = this.scene.sys.game.config.width;
         const canvasHeight = this.scene.sys.game.config.height;
 
         this.startX = (canvasWidth - gridTotalDimension) / 2;
         this.startY = (canvasHeight - gridTotalDimension) / 2;
+    }
+
+    drawStaticBoard() {
+        const graphics = this.scene.add.graphics();
+        graphics.fillStyle(this.colors.board, 1);
 
         for (let row = 0; row < this.boardSize; row++) {
             for (let col = 0; col < this.boardSize; col++) {
@@ -46,15 +42,10 @@ export default class Renderer {
         }
     }
 
-    /**
-     * Clears and redraws all dynamic elements based on the game state.
-     * This is the single point of update for the visual display.
-     * @param {object} gameState The complete game state object.
-     */
     drawGameState(gameState) {
         this.pawnGroup.clear(true, true);
         this.wallGroup.clear(true, true);
-        this.highlightedCellGroup.clear(true, true); // Clear old highlights
+        this.highlightedCellGroup.clear(true, true);
 
         this.#drawPawns(gameState.pawnPositions);
         this.#drawWalls(gameState.placedWalls);
@@ -90,27 +81,22 @@ export default class Renderer {
     #drawPawns(pawnPositions) {
         const pawnRadius = this.cellSize * 0.4;
         
-        // Draw Player 1's pawn
-        const p1 = pawnPositions.p1;
-        if (p1.row !== -1) {
-            const p1Coords = this.#getCellPixelCoords(p1.row, p1.col);
-            const p1Pawn = this.scene.add.circle(p1Coords.x + this.cellSize / 2, p1Coords.y + this.cellSize / 2, pawnRadius, this.colors.p1); // Use Magenta from theme
-            this.pawnGroup.add(p1Pawn);
-        }
-
-        // Draw Player 2's pawn
-        const p2 = pawnPositions.p2;
-        if (p2.row !== -1) {
-            const p2Coords = this.#getCellPixelCoords(p2.row, p2.col);
-            const p2Pawn = this.scene.add.circle(p2Coords.x + this.cellSize / 2, p2Coords.y + this.cellSize / 2, pawnRadius, this.colors.p2); // Use Cyan from theme
-            this.pawnGroup.add(p2Pawn);
+        // --- NEW: Iterate over all players in the state ---
+        for (const playerId in pawnPositions) {
+            const pos = pawnPositions[playerId];
+            if (pos.row !== -1) {
+                const coords = this.#getCellPixelCoords(pos.row, pos.col);
+                const color = this.playerColors[playerId];
+                const pawn = this.scene.add.circle(coords.x + this.cellSize / 2, coords.y + this.cellSize / 2, pawnRadius, color);
+                this.pawnGroup.add(pawn);
+            }
         }
     }
 
     #drawWalls(placedWalls) {
         for (const wall of placedWalls) {
             const { x, y, width, height } = this.#getWallPixelProps(wall.row, wall.col, wall.orientation);
-            const wallRect = this.scene.add.rectangle(x, y, width, height, this.colors.wall).setOrigin(0, 0); // Use Yellow from theme
+            const wallRect = this.scene.add.rectangle(x, y, width, height, this.colors.wall).setOrigin(0, 0);
             this.wallGroup.add(wallRect);
         }
     }
