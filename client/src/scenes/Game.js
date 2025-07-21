@@ -1,7 +1,9 @@
 // src/scenes/Game.js
-
+import UIManager from "../helpers/UIManager.js";
+import LocalGameOrchestrator from '../orchestrators/LocalGameOrchestrator.js';
+import OnlineGameOrchestrator from '../orchestrators/OnlineGameOrchestrator.js';
+import { ALL_PLAYERS, GAME_COLORS } from '../config/gameConfig.js';
 import Renderer from "../helpers/Renderer.js";
-import GameManager from "../helpers/GameManager.js";
 import InputHandler from "../helpers/InputHandler.js";
 
 export default class Game extends Phaser.Scene {
@@ -9,77 +11,105 @@ export default class Game extends Phaser.Scene {
         super({ key: 'Game' });
     }
 
-    create() {
-        const numPlayers = 2;
-        const config = {
-            boardSize: 9,
-            numPlayers: numPlayers,
-            wallsPerPlayer: numPlayers === 4 ? 5 : 10,
-            players: [
-                {
-                    id: 'p1',
-                    startPos: { row: 8, col: 4 },
-                    goalCondition: (r, c, boardSize) => r === boardSize - 1,
-                    color: 0xff00a6, // Magenta
-                },
-                {
-                    id: 'p2',
-                    startPos: numPlayers === 4 ? { row: 4, col: 8 } : { row: 0, col: 4 },
-                    goalCondition: (r, c, boardSize) => r === 0,
-                    color: 0x00fff7, // Cyan
-                },
-                {
-                    id: 'p3',
-                    startPos: { row: 0, col: 4 },
-                    goalCondition: (r, c, boardSize) => c === boardSize - 1,
-                    color: 0xffa500, // Orange
-                },
-                {
-                    id: 'p4',
-                    startPos: { row: 4, col: 0 },
-                    goalCondition: (r, c, boardSize) => c === 0,
-                    color: 0x55ff55, // Light Green
-                },
-            ],
-            colors: {
-                wall: 0xffff00,
-                board: 0x333333,
-                legalMove: 0xdddddd,
-                legalWall: 0x00ff00,
-                illegalWall: 0xff0000,
-            }
-        };
+    init(data) {
+        this.startupConfig = data;
+    }
+
+    async create() { // Correctly marked as async
+        this.isGameOver = false;
+        this.controllers = {};
+        this.localPlayerRole = 'p1'; // Default for local games, will be overwritten for online
+        this.latestGameState = null;
+        this.orchestrator = null;
+        this.gameConfig = {};
         
-        this.gameManager = new GameManager(this, config);
-        this.renderer = new Renderer(this, config);
-        this.inputHandler = new InputHandler(this);
+        this.uiManager = new UIManager(this);
 
-        // Render Game Start
-        this.renderer.drawStaticBoard();
-        this.renderer.drawGameState(this.gameManager.getGameState());
+        if (this.startupConfig.gameType === 'online') {
+            this.orchestrator = new OnlineGameOrchestrator(this, this.startupConfig);
+        } else {
+            // Augment config for local game
+            const numPlayers = this.startupConfig.numPlayers;
+            const playersForGame = numPlayers === 2
+                ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
+                : ALL_PLAYERS.slice(0, numPlayers);
 
-        // Wire Up Event Listeners
-        this.events.on('pawn-move-requested', ({ row, col }) => {
-            this.gameManager.movePawn(row, col);
-        });
+            this.gameConfig = {
+                ...this.startupConfig,
+                boardSize: 9, 
+                timePerPlayer: 5 * 60 * 1000,
+                wallsPerPlayer: numPlayers === 2 ? 10 : 5, 
+                players: playersForGame, 
+                colors: GAME_COLORS,
+            };
+            
+            this.orchestrator = new LocalGameOrchestrator(this, this.gameConfig);
+            
+            this.renderer = new Renderer(this, this.gameConfig);
+            this.inputHandler = new InputHandler(this);
+            this.inputHandler.setPerspective('p1'); // Local games always viewed from P1's perspective
+            this.inputHandler.setupInputListeners();
+            
+            this.uiManager.setupGameUI(this.gameConfig.players, this.orchestrator.getGameState().timers, this.gameConfig);
+        }
 
-        this.events.on('wall-placement-requested', (wallData) => {
-            this.gameManager.placeWall(wallData);
-        });
+        this.orchestrator.initialize();
+    }
 
-        this.events.on('game-state-updated', (newGameState) => {
-            this.renderer.drawGameState(newGameState);
-        });
+    onStateUpdate(gameState, isHistoryView = false) {
+        this.latestGameState = gameState;
 
-        this.events.on('wall-hover-in', (wallData) => {
-            const isLegal = this.gameManager.isWallPlacementLegal(wallData.row, wallData.col, wallData.orientation);
-            this.renderer.highlightWallSlot(wallData, isLegal);
-        });
+        let showHighlights = false;
+        const currentPlayerId = gameState.playerTurn;
 
-        this.events.on('wall-hover-out', () => {
+        if (this.startupConfig.gameType === 'online') {
+            // For online games, only show highlights if it's our turn
+            showHighlights = (currentPlayerId === this.localPlayerRole);
+        } else {
+            // For local games, show highlights if the current player is a human
+            if (currentPlayerId && this.gameConfig.playerTypes[currentPlayerId] === 'human') {
+                showHighlights = true;
+            }
+        }
+
+        const perspective = this.startupConfig.gameType === 'online' ? this.localPlayerRole : 'p1';
+        this.renderer.drawGameState(gameState, { perspective, shouldShowHighlights: showHighlights });
+
+        this.uiManager.updateTimers(gameState.timers);
+        this.uiManager.updatePlayerInfo(gameState);
+        
+        if (gameState.status === 'ended') {
+            if (this.isGameOver) return;
+            this.isGameOver = true;
             this.renderer.clearWallHighlight();
-        });
+            this.uiManager.showEndGameUI(gameState, this.gameConfig.numPlayers);
+            Object.values(this.controllers).forEach(c => c.destroy());
+            return;
+        }
+        
+        if (!isHistoryView) {
+            this.startTurn(gameState);
+        }
+    }
+    
+    async startTurn(gameState) {
+        const currentPlayerId = gameState.playerTurn;
+        if (!currentPlayerId || !this.controllers[currentPlayerId]) return;
 
-        this.inputHandler.setupInputListeners();
+        const currentController = this.controllers[currentPlayerId];
+        if (currentController.waitingForMove) return;
+        const move = await currentController.getMove(gameState);
+
+        if (this.isGameOver || !move) return;
+
+        if (this.orchestrator instanceof LocalGameOrchestrator) {
+             this.orchestrator.handleMoveRequest(move);
+        }
+    }
+    
+    update(time, delta) {
+        if (this.orchestrator instanceof LocalGameOrchestrator) {
+            this.orchestrator.update(delta);
+        }
     }
 }

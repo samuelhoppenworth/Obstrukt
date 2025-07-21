@@ -1,0 +1,130 @@
+// src/scenes/Menu.js
+import Renderer from '../helpers/Renderer.js';
+import { ALL_PLAYERS, GAME_COLORS } from '../config/gameConfig.js';
+
+export default class Menu extends Phaser.Scene {
+    constructor() { super({ key: 'Menu' }); }
+
+    create() {
+        this.renderConfig = { boardSize: 9, players: ALL_PLAYERS, colors: GAME_COLORS };
+        this.renderer = new Renderer(this, this.renderConfig);
+        
+        const sidePanel = document.getElementById('side-panel');
+        sidePanel.innerHTML = `
+            <div class="panel-section">
+                <h2>Game Mode</h2>
+                <div class="config-item">
+                    <label for="game-mode">Mode:</label>
+                    <select id="game-mode">
+                        <option value="local">Local Play</option>
+                        <option value="online">Online Multiplayer</option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label for="num-players">Players:</label>
+                    <select id="num-players">
+                        <option value="2">2</option>
+                        <option value="4">4</option>
+                    </select>
+                </div>
+                <div id="local-options">
+                    <h2>Player Settings</h2>
+                    <div id="player-types-container"></div>
+                </div>
+            </div>
+            <button id="start-game-btn">Start Game</button>
+        `;
+
+        const gameModeSelect = document.getElementById('game-mode');
+        const localOptions = document.getElementById('local-options');
+        const numPlayersSelect = document.getElementById('num-players');
+        const startButton = document.getElementById('start-game-btn');
+
+        const updateUI = () => {
+            const isLocal = gameModeSelect.value === 'local';
+            const numPlayers = parseInt(numPlayersSelect.value, 10);
+            
+            localOptions.style.display = isLocal ? 'block' : 'none';
+            startButton.textContent = isLocal ? 'Start Game' : 'Find Game';
+            
+            if (isLocal) {
+                this.generatePlayerTypeSelectors(numPlayers);
+            }
+            this.updatePreview(numPlayers);
+        };
+        
+        gameModeSelect.addEventListener('change', updateUI);
+        numPlayersSelect.addEventListener('change', updateUI);
+
+        startButton.addEventListener('click', () => {
+            const mode = gameModeSelect.value;
+            const numPlayers = parseInt(numPlayersSelect.value, 10);
+
+            if (mode === 'online') {
+                this.scene.start('Game', { 
+                    gameType: 'online',
+                    numPlayers: numPlayers
+                });
+            } else {
+                const playersForGame = numPlayers === 2
+                    ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
+                    : ALL_PLAYERS.slice(0, 4);
+
+                const playerTypes = {};
+                playersForGame.forEach(player => {
+                    const select = document.getElementById(`${player.id}-type`);
+                    playerTypes[player.id] = select.value;
+                });
+                
+                this.scene.start('Game', {
+                    gameType: 'local',
+                    numPlayers: numPlayers,
+                    playerTypes: playerTypes
+                });
+            }
+        });
+        
+        updateUI();
+    }
+
+    generatePlayerTypeSelectors(numPlayers) {
+        // ... this function remains unchanged
+        const container = document.getElementById('player-types-container');
+        container.innerHTML = '';
+
+        const playersForGame = numPlayers === 2
+            ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
+            : ALL_PLAYERS.slice(0, 4);
+
+        playersForGame.forEach((player, index) => {
+            const isFirstPlayer = index === 0;
+            
+            const item = document.createElement('div');
+            item.className = 'config-item';
+            item.innerHTML = `
+                <label for="${player.id}-type">Player ${index + 1}:</label>
+                <select id="${player.id}-type" ${isFirstPlayer ? 'disabled' : ''}>
+                    <option value="human" ${isFirstPlayer ? 'selected' : ''}>Human</option>
+                    <option value="ai" ${!isFirstPlayer ? 'selected' : ''}>AI</option>
+                </select>
+            `;
+            container.appendChild(item);
+        });
+    }
+
+    updatePreview(numPlayers) {
+        const playersForGame = numPlayers === 2
+            ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
+            : ALL_PLAYERS.slice(0, 4);
+        
+        let pawnPositions = {};
+        playersForGame.forEach(player => {
+             pawnPositions[player.id] = player.startPos;
+        });
+
+        const previewState = { pawnPositions, placedWalls: [], availablePawnMoves: [], status: 'menu' };
+        
+        // Update this call to match the new signature
+        this.renderer.drawGameState(previewState, { perspective: 'p1', shouldShowHighlights: false });
+    }
+}
