@@ -1,53 +1,50 @@
 // src/helpers/InputHandler.js
 
 export default class InputHandler {
-    /**
-     * @param {Phaser.Scene} scene
-     */
     constructor(scene) {
         this.scene = scene;
-        // No longer need to track current wall orientation
-        this.lastHoveredWall = null; // Track to avoid spamming events
+        this.lastHoveredWall = null;
+        this.perspective = 'p1';
+        this.boardSize = 9; // Grid is 9x9 cells
+    }
+
+    setPerspective(playerId) {
+        this.perspective = playerId || 'p1';
     }
 
     setupInputListeners() {
         this.scene.input.on('pointerdown', this.handlePointerDown, this);
         this.scene.input.on('pointermove', this.handlePointerMove, this);
-
-        // The right-click listener for toggling wall orientation has been removed.
-        
         this.scene.input.mouse.disableContextMenu();
     }
 
     handlePointerDown(pointer) {
-        if (pointer.rightButtonDown()) return; // Ignore right-clicks for placement
-
+        if (pointer.rightButtonDown() || this.scene.isGameOver) return;
+        
         const location = this.#getBoardLocation(pointer.x, pointer.y);
         if (!location) return;
 
-        if (location.type === 'cell') {
-            this.scene.events.emit('pawn-move-requested', { row: location.row, col: location.col });
-        } else if (location.type === 'wall') {
-            this.scene.events.emit('wall-placement-requested', {
-                row: location.row,
-                col: location.col,
-                orientation: location.orientation
-            });
-        }
+        this.scene.events.emit('human-action-input', { type: location.type, data: location });
     }
 
     handlePointerMove(pointer) {
+        if (this.scene.isGameOver) {
+            if (this.lastHoveredWall !== null) {
+                this.scene.events.emit('wall-hover-out');
+                this.lastHoveredWall = null;
+            }
+            return;
+        }
+
         const location = this.#getBoardLocation(pointer.x, pointer.y);
 
         if (location && location.type === 'wall') {
             const hoverKey = `${location.row}-${location.col}-${location.orientation}`;
-            // Emit only if the hover location changes
             if (this.lastHoveredWall !== hoverKey) {
                 this.scene.events.emit('wall-hover-in', { ...location });
                 this.lastHoveredWall = hoverKey;
             }
         } else {
-            // Emit only if we were previously hovering over a wall
             if (this.lastHoveredWall !== null) {
                 this.scene.events.emit('wall-hover-out');
                 this.lastHoveredWall = null;
@@ -55,36 +52,89 @@ export default class InputHandler {
         }
     }
 
+    /**
+     * Converts view-space CELL coordinates to model-space. Correct for pawns.
+     */
+    #untransformCellCoords(viewRow, viewCol) {
+        const bS = this.boardSize;
+        switch (this.perspective) {
+            case 'p2': return { row: (bS - 1) - viewCol, col: viewRow };
+            case 'p3': return { row: (bS - 1) - viewRow, col: (bS - 1) - viewCol };
+            case 'p4': return { row: viewCol, col: (bS - 1) - viewRow };
+            case 'p1':
+            default:   return { row: viewRow, col: viewCol };
+        }
+    }
+
+    /**
+     * --- THIS IS THE NEW, CORRECTED FUNCTION ---
+     * Converts view-space WALL coordinates and orientation to model-space.
+     * This is the perfect inverse of the renderer's logic.
+     */
+    #untransformWallCoords(viewRow, viewCol, viewOrientation) {
+        const bS = this.boardSize;
+        let modelRow = viewRow;
+        let modelCol = viewCol;
+        let modelOrientation = viewOrientation;
+
+        switch (this.perspective) {
+            case 'p2': // Inverse of 90-degree CW rotation is 270-degree CW
+                modelRow = viewCol;
+                modelCol = (bS - 2) - viewRow;
+                modelOrientation = viewOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+                break;
+
+            case 'p3': // Inverse of 180-degree rotation is 180-degree
+                modelRow = (bS - 2) - viewRow;
+                modelCol = (bS - 2) - viewCol;
+                // Orientation does not change
+                break;
+
+            case 'p4': // Inverse of 270-degree CW rotation is 90-degree CW
+                modelRow = (bS - 2) - viewCol;
+                modelCol = viewRow;
+                modelOrientation = viewOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+                break;
+                
+            case 'p1':
+            default:
+                // No transformation needed
+                break;
+        }
+        return { row: modelRow, col: modelCol, orientation: modelOrientation };
+    }
+
     #getBoardLocation(pixelX, pixelY) {
-        const { startX, startY, cellSize, gapSize, boardSize } = this.scene.renderer; // Get renderer props from scene
+        const { startX, startY, cellSize, gapSize } = this.scene.renderer;
         const block = cellSize + gapSize;
+        const wallGridSize = this.boardSize - 1;
+
+        if (pixelX < startX || pixelY < startY) return null;
         
-        const relativeX = pixelX - startX;
-        const relativeY = pixelY - startY;
+        const viewCol = Math.floor((pixelX - startX) / block);
+        const viewRow = Math.floor((pixelY - startY) / block);
 
-        const col = Math.floor(relativeX / block);
-        const row = Math.floor(relativeY / block);
-
-        const xInBlock = relativeX % block;
-        const yInBlock = relativeY % block;
+        const xInBlock = (pixelX - startX) % block;
+        const yInBlock = (pixelY - startY) % block;
+        
+        if (viewRow >= this.boardSize || viewCol >= this.boardSize) return null;
 
         const onCell = xInBlock < cellSize && yInBlock < cellSize;
+        const onVerticalGap = xInBlock >= cellSize && viewCol < wallGridSize;
+        const onHorizontalGap = yInBlock >= cellSize && viewRow < wallGridSize;
+
         if (onCell) {
-            if (row < 0 || row >= boardSize || col < 0 || col >= boardSize) return null;
-            return { type: 'cell', row, col };
+            return { type: 'cell', ...this.#untransformCellCoords(viewRow, viewCol) };
         }
 
-        const onVerticalGap = xInBlock >= cellSize && yInBlock < cellSize;
-        const onHorizontalGap = xInBlock < cellSize && yInBlock >= cellSize;
+        if (onHorizontalGap) {
+            const modelWall = this.#untransformWallCoords(viewRow, viewCol, 'horizontal');
+            return { type: 'wall', ...modelWall };
+        }
         
-        const wallRow = Math.floor((relativeY - cellSize / 2) / block);
-        const wallCol = Math.floor((relativeX - cellSize / 2) / block);
-
-        if (onHorizontalGap || onVerticalGap) {
-            if (wallRow < 0 || wallRow >= boardSize - 1 || wallCol < 0 || wallCol >= boardSize - 1) return null;
-            
-            const orientation = onHorizontalGap ? 'horizontal' : 'vertical';
-            return { type: 'wall', row: wallRow, col: wallCol, orientation: orientation };
+        if (onVerticalGap) {
+            const modelWall = this.#untransformWallCoords(viewRow, viewCol, 'vertical');
+            return { type: 'wall', ...modelWall };
         }
         
         return null;
