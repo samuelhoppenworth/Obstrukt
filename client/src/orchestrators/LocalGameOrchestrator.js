@@ -7,7 +7,7 @@ import HumanController from '../controllers/HumanController.js';
 export default class LocalGameOrchestrator {
     constructor(scene, config) {
         this.scene = scene;
-        this.config = config; // Game config from Menu
+        this.config = config;
         this.players = config.players;
         this.history = [];
         this.viewingHistoryIndex = -1;
@@ -53,7 +53,7 @@ export default class LocalGameOrchestrator {
     }
 
     update(delta) {
-        if (this.gameState.status !== 'active' || this.isViewingHistory()) return;
+        if (this.gameState.status !== 'active') return;
 
         const currentPlayerId = this.gameState.playerTurn;
         this.gameState.timers[currentPlayerId] -= delta;
@@ -118,8 +118,6 @@ export default class LocalGameOrchestrator {
     }
 
     handlePlayerLoss(losingPlayerId, reason) {
-        // This logic is identical to the server version.
-        // It could also be moved to GameLogic if desired.
         if (this.gameState.status !== 'active') return;
 
         const loserIndex = this.gameState.activePlayerIds.indexOf(losingPlayerId);

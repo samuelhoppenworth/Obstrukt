@@ -15,7 +15,7 @@ export default class Game extends Phaser.Scene {
         this.startupConfig = data;
     }
 
-    async create() { // Correctly marked as async
+    async create() {
         this.isGameOver = false;
         this.controllers = {};
         this.localPlayerRole = 'p1'; // Default for local games, will be overwritten for online
@@ -63,10 +63,8 @@ export default class Game extends Phaser.Scene {
         const currentPlayerId = gameState.playerTurn;
 
         if (this.startupConfig.gameType === 'online') {
-            // For online games, only show highlights if it's our turn
             showHighlights = (currentPlayerId === this.localPlayerRole);
         } else {
-            // For local games, show highlights if the current player is a human
             if (currentPlayerId && this.gameConfig.playerTypes[currentPlayerId] === 'human') {
                 showHighlights = true;
             }

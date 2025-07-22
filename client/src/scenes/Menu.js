@@ -88,7 +88,6 @@ export default class Menu extends Phaser.Scene {
     }
 
     generatePlayerTypeSelectors(numPlayers) {
-        // ... this function remains unchanged
         const container = document.getElementById('player-types-container');
         container.innerHTML = '';
 
@@ -123,8 +122,6 @@ export default class Menu extends Phaser.Scene {
         });
 
         const previewState = { pawnPositions, placedWalls: [], availablePawnMoves: [], status: 'menu' };
-        
-        // Update this call to match the new signature
         this.renderer.drawGameState(previewState, { perspective: 'p1', shouldShowHighlights: false });
     }
 }

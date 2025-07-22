@@ -42,12 +42,10 @@ export default class OnlineGameOrchestrator {
         const scene = this.scene;
         const serverConfig = data.config;
 
-        // --- FIX: Re-hydrate the players array ---
         // The player objects from the server are missing the goalCondition function due to JSON serialization.
-        // We rebuild them by combining the server's data with our local, complete data.
+        // Rebuild them by combining the server's data with the complete local data.
         const hydratedPlayers = serverConfig.players.map(serverPlayer => {
             const localPlayerTemplate = ALL_PLAYERS.find(p => p.id === serverPlayer.id);
-            if (!localPlayerTemplate) return null; // Should not happen
 
             // Create a new object that has the server's data (like color)
             // but guarantees it has the necessary functions from the local template.
@@ -55,15 +53,14 @@ export default class OnlineGameOrchestrator {
                 ...localPlayerTemplate, // Contains the goalCondition function
                 ...serverPlayer,      // Overwrites with server data (like startPos, color, etc.)
             };
-        }).filter(p => p !== null); // Filter out any nulls just in case
+        })
 
         // Build the final, safe game config for the client
         scene.gameConfig = {
             ...serverConfig,
-            players: hydratedPlayers, // Use the re-hydrated array
+            players: hydratedPlayers,
             colors: GAME_COLORS,
         };
-        // --- END OF FIX ---
 
         scene.localPlayerRole = data.playerMap[this.networkManager.socket.id];
 
@@ -99,8 +96,6 @@ export default class OnlineGameOrchestrator {
         );
         
         const logicState = { ...gameState, activePlayerIds };
-
-        // This call will now succeed because `scene.gameConfig.players` contains the re-hydrated objects.
         const isLegal = GameLogic.isWallPlacementLegal(
             wallProps, 
             logicState, 
