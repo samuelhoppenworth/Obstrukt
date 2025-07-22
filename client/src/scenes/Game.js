@@ -24,14 +24,31 @@ export default class Game extends Phaser.Scene {
             this.orchestrator = new OnlineGameOrchestrator(this, this.startupConfig);
         } else {
             const numPlayers = this.startupConfig.numPlayers;
+            const boardSize = this.startupConfig.boardSize || 9;
             const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
+
+            let wallsPerPlayer;
+            switch (boardSize) {
+                case 5:
+                    wallsPerPlayer = (numPlayers === 2) ? 4 : 2;
+                    break;
+                case 7:
+                    wallsPerPlayer = (numPlayers === 2) ? 8 : 4;
+                    break;
+                case 11:
+                    wallsPerPlayer = (numPlayers === 2) ? 12 : 6;
+                    break;
+                case 9:
+                default:
+                    wallsPerPlayer = (numPlayers === 2) ? 10 : 5;
+                    break;
+            }
 
             this.gameConfig = {
                 ...this.startupConfig,
-                // --- FIX: Use boardSize from startup config ---
-                boardSize: this.startupConfig.boardSize || 9, 
+                boardSize: boardSize, 
                 timePerPlayer: 5 * 60 * 1000,
-                wallsPerPlayer: this.startupConfig.boardSize === 9 ? (numPlayers === 2 ? 10 : 5) : 8, // Example: fewer walls for other sizes
+                wallsPerPlayer: wallsPerPlayer, // Use the newly calculated value
                 players: playersForGame, 
                 colors: GAME_COLORS,
             };
@@ -39,7 +56,6 @@ export default class Game extends Phaser.Scene {
             this.orchestrator = new LocalGameOrchestrator(this, this.gameConfig);
             
             this.renderer = new Renderer(this, this.gameConfig);
-            // --- FIX: Pass gameConfig to InputHandler ---
             this.inputHandler = new InputHandler(this, this.gameConfig);
             this.inputHandler.setPerspective('p1');
             this.inputHandler.setupInputListeners();

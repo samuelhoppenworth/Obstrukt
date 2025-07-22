@@ -65,7 +65,7 @@ export default class OnlineGameOrchestrator {
         scene.localPlayerRole = data.playerMap[this.networkManager.socket.id];
 
         scene.renderer = new Renderer(scene, scene.gameConfig);
-        scene.inputHandler = new InputHandler(scene);
+        scene.inputHandler = new InputHandler(scene, scene.gameConfig);
         
         scene.renderer.setPerspective(scene.localPlayerRole);
         scene.inputHandler.setPerspective(scene.localPlayerRole);

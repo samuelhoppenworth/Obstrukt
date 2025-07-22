@@ -15,7 +15,6 @@ export default class LocalGameOrchestrator {
         this.gameState = {
             status: 'active', winner: null, reason: null,
             playerTurn: config.players[0].id,
-            // --- FIX: Call the startPos function to get dynamic positions ---
             pawnPositions: config.players.reduce((acc, p) => { acc[p.id] = p.startPos(config.boardSize); return acc; }, {}),
             wallsLeft: config.players.reduce((acc, p) => { acc[p.id] = config.wallsPerPlayer; return acc; }, {}),
             timers: config.players.reduce((acc, p) => { acc[p.id] = config.timePerPlayer; return acc; }, {}),
