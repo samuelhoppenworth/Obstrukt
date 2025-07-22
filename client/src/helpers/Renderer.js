@@ -5,24 +5,21 @@ export default class Renderer {
         this.scene = scene;
         this.boardSize = config.boardSize || 9;
 
-        // --- START OF CORRECTED DYNAMIC SCALING WITH PADDING ---
+        // --- START OF DYNAMIC SCALING WITH PADDING FIX ---
 
         const availableSize = Math.min(scene.sys.game.config.width, scene.sys.game.config.height);
         const gapToCellRatio = 0.25; // Gaps are 25% of the size of a cell.
 
-        // **THE FIX:** We calculate the total size based on a new formula:
-        // Total Size = (Num Cells * Cell Size) + (Num Gaps * Gap Size)
-        // A 9x9 board has 9 cells, 8 internal gaps, and 2 "padding" gaps (left/right). Total = 10 gaps.
-        // So, the formula is: (boardSize * Cell Size) + ((boardSize + 1) * Gap Size)
-        
-        // Let C = cellSize, G = gapSize, N = boardSize, R = ratio (0.25)
-        // availableSize = N*C + (N+1)*G
-        // availableSize = N*C + (N+1)*(C*R)
-        // availableSize = C * (N + (N+1)*R)
-        // C = availableSize / (N + (N+1)*R)
+        // **THE FIX:** Add a padding unit to our calculation. 
+        // A value of 1.0 represents half a cell of padding on each side (left/right or top/bottom).
+        // This exactly replicates the look of the original 9x9 board.
+        const paddingInCellUnits = 1.0; 
 
-        const totalUnitsDenominator = this.boardSize + (this.boardSize + 1) * gapToCellRatio;
-        this.cellSize = availableSize / totalUnitsDenominator;
+        // The total number of "units" now includes the cells, the gaps, AND the padding.
+        const totalUnits = (this.boardSize + paddingInCellUnits) + ((this.boardSize - 1) * gapToCellRatio);
+
+        // The rest of the calculation remains the same, but now produces a smaller grid.
+        this.cellSize = availableSize / totalUnits;
         this.gapSize = this.cellSize * gapToCellRatio;
 
         // --- END OF FIX ---
@@ -33,12 +30,12 @@ export default class Renderer {
         this.highlightedCellGroup = this.scene.add.group();
         this.highlightedWall = this.scene.add.graphics();
 
+        // This calculation now correctly results in a grid smaller than the canvas.
         const gridTotalDimension = this.boardSize * this.cellSize + (this.boardSize - 1) * this.gapSize;
         const canvasWidth = this.scene.sys.game.config.width;
         const canvasHeight = this.scene.sys.game.config.height;
 
-        // The startX/startY will now be exactly half of the remaining space,
-        // which, by our formula, is exactly one gapSize.
+        // The startX/startY will now be a positive number, creating the padding you liked.
         this.startX = (canvasWidth - gridTotalDimension) / 2;
         this.startY = (canvasHeight - gridTotalDimension) / 2;
         
@@ -61,6 +58,7 @@ export default class Renderer {
     }
     
     // ... NO OTHER FUNCTIONS IN THIS FILE NEED TO BE CHANGED ...
+    // They are all written to be dependent on `this.cellSize` and `this.gapSize`.
 
     setPerspective(playerId) {
         this.perspective = playerId || 'p1';
