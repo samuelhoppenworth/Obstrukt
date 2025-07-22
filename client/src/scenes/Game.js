@@ -7,18 +7,13 @@ import Renderer from "../helpers/Renderer.js";
 import InputHandler from "../helpers/InputHandler.js";
 
 export default class Game extends Phaser.Scene {
-    constructor() {
-        super({ key: 'Game' });
-    }
-
-    init(data) {
-        this.startupConfig = data;
-    }
+    constructor() { super({ key: 'Game' }); }
+    init(data) { this.startupConfig = data; }
 
     async create() {
         this.isGameOver = false;
         this.controllers = {};
-        this.localPlayerRole = 'p1'; // Default for local games, will be overwritten for online
+        this.localPlayerRole = 'p1';
         this.latestGameState = null;
         this.orchestrator = null;
         this.gameConfig = {};
@@ -28,17 +23,15 @@ export default class Game extends Phaser.Scene {
         if (this.startupConfig.gameType === 'online') {
             this.orchestrator = new OnlineGameOrchestrator(this, this.startupConfig);
         } else {
-            // Augment config for local game
             const numPlayers = this.startupConfig.numPlayers;
-            const playersForGame = numPlayers === 2
-                ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
-                : ALL_PLAYERS.slice(0, numPlayers);
+            const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
 
             this.gameConfig = {
                 ...this.startupConfig,
-                boardSize: 9, 
+                // --- FIX: Use boardSize from startup config ---
+                boardSize: this.startupConfig.boardSize || 9, 
                 timePerPlayer: 5 * 60 * 1000,
-                wallsPerPlayer: numPlayers === 2 ? 10 : 5, 
+                wallsPerPlayer: this.startupConfig.boardSize === 9 ? (numPlayers === 2 ? 10 : 5) : 8, // Example: fewer walls for other sizes
                 players: playersForGame, 
                 colors: GAME_COLORS,
             };
@@ -46,8 +39,9 @@ export default class Game extends Phaser.Scene {
             this.orchestrator = new LocalGameOrchestrator(this, this.gameConfig);
             
             this.renderer = new Renderer(this, this.gameConfig);
-            this.inputHandler = new InputHandler(this);
-            this.inputHandler.setPerspective('p1'); // Local games always viewed from P1's perspective
+            // --- FIX: Pass gameConfig to InputHandler ---
+            this.inputHandler = new InputHandler(this, this.gameConfig);
+            this.inputHandler.setPerspective('p1');
             this.inputHandler.setupInputListeners();
             
             this.uiManager.setupGameUI(this.gameConfig.players, this.orchestrator.getGameState().timers, this.gameConfig);

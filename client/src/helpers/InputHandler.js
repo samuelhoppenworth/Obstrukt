@@ -1,11 +1,13 @@
 // src/helpers/InputHandler.js
 
 export default class InputHandler {
-    constructor(scene) {
+    // --- FIX: Accept config in constructor ---
+    constructor(scene, config) {
         this.scene = scene;
         this.lastHoveredWall = null;
         this.perspective = 'p1';
-        this.boardSize = 9; // Grid is 9x9 cells
+        // --- FIX: Use boardSize from config ---
+        this.boardSize = config.boardSize || 9;
     }
 
     setPerspective(playerId) {
@@ -67,7 +69,6 @@ export default class InputHandler {
     }
 
     /**
-     * --- THIS IS THE NEW, CORRECTED FUNCTION ---
      * Converts view-space WALL coordinates and orientation to model-space.
      * This is the perfect inverse of the renderer's logic.
      */

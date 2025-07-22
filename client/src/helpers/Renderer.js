@@ -4,10 +4,28 @@ export default class Renderer {
     constructor(scene, config) {
         this.scene = scene;
         this.boardSize = config.boardSize || 9;
-        this.cellSize = 80;
-        this.gapSize = 20;
-        this.colors = { ...config.colors };
-        this.playerColors = config.players.reduce((acc, player) => { acc[player.id] = player.color; return acc; }, {});
+
+        // --- START OF CORRECTED DYNAMIC SCALING WITH PADDING ---
+
+        const availableSize = Math.min(scene.sys.game.config.width, scene.sys.game.config.height);
+        const gapToCellRatio = 0.25; // Gaps are 25% of the size of a cell.
+
+        // **THE FIX:** We calculate the total size based on a new formula:
+        // Total Size = (Num Cells * Cell Size) + (Num Gaps * Gap Size)
+        // A 9x9 board has 9 cells, 8 internal gaps, and 2 "padding" gaps (left/right). Total = 10 gaps.
+        // So, the formula is: (boardSize * Cell Size) + ((boardSize + 1) * Gap Size)
+        
+        // Let C = cellSize, G = gapSize, N = boardSize, R = ratio (0.25)
+        // availableSize = N*C + (N+1)*G
+        // availableSize = N*C + (N+1)*(C*R)
+        // availableSize = C * (N + (N+1)*R)
+        // C = availableSize / (N + (N+1)*R)
+
+        const totalUnitsDenominator = this.boardSize + (this.boardSize + 1) * gapToCellRatio;
+        this.cellSize = availableSize / totalUnitsDenominator;
+        this.gapSize = this.cellSize * gapToCellRatio;
+
+        // --- END OF FIX ---
              
         this.staticBoardGraphics = this.scene.add.graphics();
         this.pawnGroup = this.scene.add.group();
@@ -19,13 +37,30 @@ export default class Renderer {
         const canvasWidth = this.scene.sys.game.config.width;
         const canvasHeight = this.scene.sys.game.config.height;
 
+        // The startX/startY will now be exactly half of the remaining space,
+        // which, by our formula, is exactly one gapSize.
         this.startX = (canvasWidth - gridTotalDimension) / 2;
         this.startY = (canvasHeight - gridTotalDimension) / 2;
         
         this.perspective = 'p1';
         
+        this.colors = { ...config.colors };
+        this.playerColors = config.players.reduce((acc, player) => { acc[player.id] = player.color; return acc; }, {});
         this.drawStaticBoard();
     }
+
+    /**
+     * Properly destroys all Phaser Game Objects created by this renderer instance.
+     */
+    destroy() {
+        this.staticBoardGraphics.destroy();
+        this.pawnGroup.destroy(true);
+        this.wallGroup.destroy(true);
+        this.highlightedCellGroup.destroy(true);
+        this.highlightedWall.destroy();
+    }
+    
+    // ... NO OTHER FUNCTIONS IN THIS FILE NEED TO BE CHANGED ...
 
     setPerspective(playerId) {
         this.perspective = playerId || 'p1';
@@ -118,60 +153,44 @@ export default class Renderer {
         return { x, y };
     }
     
-    /**
-     * --- THIS IS THE DEFINITIVELY CORRECTED FUNCTION ---
-     * Calculates the final pixel properties for a wall after applying the correct perspective transformation.
-     */
     #getWallPixelProps(modelRow, modelCol, modelOrientation) {
         const bS = this.boardSize;
         let viewRow = modelRow;
         let viewCol = modelCol;
         let viewOrientation = modelOrientation;
 
-        // Step 1: Calculate the new "view" coordinates and orientation for the wall's anchor.
-        // This logic is now distinct and correct for walls.
         switch (this.perspective) {
-            case 'p2': // 90-degree clockwise rotation
+            case 'p2':
                 if (modelOrientation === 'horizontal') {
                     viewRow = (bS - 2) - modelCol;
                     viewCol = modelRow;
                     viewOrientation = 'vertical';
-                } else { // vertical
+                } else {
                     viewRow = modelCol;
                     viewCol = (bS - 1) - modelRow;
                     viewOrientation = 'horizontal';
                 }
                 break;
-
-            case 'p3': // 180-degree rotation
-                if (modelOrientation === 'horizontal') {
-                    viewRow = (bS - 2) - modelRow;
-                    viewCol = (bS - 2) - modelCol;
-                } else { // vertical
-                    viewRow = (bS - 2) - modelRow;
-                    viewCol = (bS - 2) - modelCol;
-                }
+            case 'p3':
+                viewRow = (bS - 2) - modelRow;
+                viewCol = (bS - 2) - modelCol;
                 break;
-
-            case 'p4': // 270-degree clockwise rotation
+            case 'p4':
                 if (modelOrientation === 'horizontal') {
                     viewRow = modelCol;
                     viewCol = (bS - 1) - modelRow;
                     viewOrientation = 'vertical';
-                } else { // vertical
+                } else {
                     viewRow = (bS - 2) - modelCol;
                     viewCol = modelRow;
                     viewOrientation = 'horizontal';
                 }
                 break;
-            
             case 'p1':
             default:
-                // No transformation needed
                 break;
         }
 
-        // Step 2: Calculate pixel positions based on the final view coordinates and orientation.
         const wallLength = this.cellSize * 2 + this.gapSize;
         const block = this.cellSize + this.gapSize;
 
@@ -182,7 +201,7 @@ export default class Renderer {
                 width: wallLength,
                 height: this.gapSize
             };
-        } else { // Vertical
+        } else {
             return {
                 x: this.startX + viewCol * block + this.cellSize,
                 y: this.startY + viewRow * block,

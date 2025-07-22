@@ -12,17 +12,14 @@ export default class LocalGameOrchestrator {
         this.history = [];
         this.viewingHistoryIndex = -1;
 
-        // Initialize game state
         this.gameState = {
-            status: 'active',
-            winner: null,
-            reason: null,
+            status: 'active', winner: null, reason: null,
             playerTurn: config.players[0].id,
-            pawnPositions: config.players.reduce((acc, p) => { acc[p.id] = { ...p.startPos }; return acc; }, {}),
+            // --- FIX: Call the startPos function to get dynamic positions ---
+            pawnPositions: config.players.reduce((acc, p) => { acc[p.id] = p.startPos(config.boardSize); return acc; }, {}),
             wallsLeft: config.players.reduce((acc, p) => { acc[p.id] = config.wallsPerPlayer; return acc; }, {}),
             timers: config.players.reduce((acc, p) => { acc[p.id] = config.timePerPlayer; return acc; }, {}),
-            placedWalls: [],
-            availablePawnMoves: [],
+            placedWalls: [], availablePawnMoves: [],
             activePlayerIds: config.players.map(p => p.id),
             playerTurnIndex: 0,
         };

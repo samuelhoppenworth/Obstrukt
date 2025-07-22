@@ -6,6 +6,7 @@ export default class Menu extends Phaser.Scene {
     constructor() { super({ key: 'Menu' }); }
 
     create() {
+        // Initial render
         this.renderConfig = { boardSize: 9, players: ALL_PLAYERS, colors: GAME_COLORS };
         this.renderer = new Renderer(this, this.renderConfig);
         
@@ -29,6 +30,15 @@ export default class Menu extends Phaser.Scene {
                 </div>
                 <div id="local-options">
                     <h2>Player Settings</h2>
+                    <!-- FIX: Added Board Size Selector -->
+                    <div class="config-item">
+                        <label for="board-size">Board Size:</label>
+                        <select id="board-size">
+                            <option value="7">7x7</option>
+                            <option value="9" selected>9x9</option>
+                            <option value="11">11x11</option>
+                        </select>
+                    </div>
                     <div id="player-types-container"></div>
                 </div>
             </div>
@@ -39,31 +49,49 @@ export default class Menu extends Phaser.Scene {
         const localOptions = document.getElementById('local-options');
         const numPlayersSelect = document.getElementById('num-players');
         const startButton = document.getElementById('start-game-btn');
+        const boardSizeSelect = document.getElementById('board-size'); // Get the new element
 
         const updateUI = () => {
             const isLocal = gameModeSelect.value === 'local';
             const numPlayers = parseInt(numPlayersSelect.value, 10);
+            const boardSize = parseInt(boardSizeSelect.value, 10);
             
             localOptions.style.display = isLocal ? 'block' : 'none';
             startButton.textContent = isLocal ? 'Start Game' : 'Find Game';
             
+            // Online mode should only allow 9x9 board
+            boardSizeSelect.parentElement.style.display = isLocal ? 'flex' : 'none';
+            if (!isLocal) {
+                 numPlayersSelect.querySelector('option[value="4"]').disabled = false;
+            } else {
+                // For simplicity, 4 players only on 9x9 for now
+                 numPlayersSelect.querySelector('option[value="4"]').disabled = boardSize !== 9;
+                 if (boardSize !== 9 && numPlayersSelect.value === '4') {
+                    numPlayersSelect.value = '2';
+                 }
+            }
+            
             if (isLocal) {
                 this.generatePlayerTypeSelectors(numPlayers);
             }
-            this.updatePreview(numPlayers);
+            // Pass the board size to the preview
+            this.updatePreview(numPlayers, boardSize);
         };
         
         gameModeSelect.addEventListener('change', updateUI);
         numPlayersSelect.addEventListener('change', updateUI);
+        boardSizeSelect.addEventListener('change', updateUI); // Add listener for board size changes
 
         startButton.addEventListener('click', () => {
             const mode = gameModeSelect.value;
             const numPlayers = parseInt(numPlayersSelect.value, 10);
+            const boardSize = parseInt(boardSizeSelect.value, 10);
 
             if (mode === 'online') {
                 this.scene.start('Game', { 
                     gameType: 'online',
                     numPlayers: numPlayers
+                    // boardSize for online is determined by the server (hardcoded to 9)
                 });
             } else {
                 const playersForGame = numPlayers === 2
@@ -79,7 +107,8 @@ export default class Menu extends Phaser.Scene {
                 this.scene.start('Game', {
                     gameType: 'local',
                     numPlayers: numPlayers,
-                    playerTypes: playerTypes
+                    playerTypes: playerTypes,
+                    boardSize: boardSize // Pass the selected board size
                 });
             }
         });
@@ -90,35 +119,35 @@ export default class Menu extends Phaser.Scene {
     generatePlayerTypeSelectors(numPlayers) {
         const container = document.getElementById('player-types-container');
         container.innerHTML = '';
-
-        const playersForGame = numPlayers === 2
-            ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
-            : ALL_PLAYERS.slice(0, 4);
+        const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
 
         playersForGame.forEach((player, index) => {
-            const isFirstPlayer = index === 0;
-            
             const item = document.createElement('div');
             item.className = 'config-item';
             item.innerHTML = `
                 <label for="${player.id}-type">Player ${index + 1}:</label>
-                <select id="${player.id}-type" ${isFirstPlayer ? 'disabled' : ''}>
-                    <option value="human" ${isFirstPlayer ? 'selected' : ''}>Human</option>
-                    <option value="ai" ${!isFirstPlayer ? 'selected' : ''}>AI</option>
+                <select id="${player.id}-type">
+                    <option value="human" ${index === 0 ? 'selected' : ''}>Human</option>
                 </select>
             `;
             container.appendChild(item);
         });
     }
 
-    updatePreview(numPlayers) {
-        const playersForGame = numPlayers === 2
-            ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
-            : ALL_PLAYERS.slice(0, 4);
+    updatePreview(numPlayers, boardSize) {
+        // --- FIX: Destroy and recreate the renderer to show the new size ---
+        if (this.renderer) {
+            this.renderer.destroy();
+        }
+        this.renderConfig = { boardSize, players: ALL_PLAYERS, colors: GAME_COLORS };
+        this.renderer = new Renderer(this, this.renderConfig);
+
+        const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
         
         let pawnPositions = {};
         playersForGame.forEach(player => {
-             pawnPositions[player.id] = player.startPos;
+             // Call the startPos function with the new board size
+             pawnPositions[player.id] = player.startPos(boardSize);
         });
 
         const previewState = { pawnPositions, placedWalls: [], availablePawnMoves: [], status: 'menu' };

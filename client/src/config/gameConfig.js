@@ -12,10 +12,10 @@ const PALETTE = {
 };
 
 export const ALL_PLAYERS = [
-    { id: 'p1', startPos: { row: 8, col: 4 }, goalCondition: (r, c, bS) => r === 0, color: PALETTE.green },
-    { id: 'p2', startPos: { row: 4, col: 8 }, goalCondition: (r, c, bS) => c === 0, color: PALETTE.pink },
-    { id: 'p3', startPos: { row: 0, col: 4 }, goalCondition: (r, c, bS) => r === bS - 1, color: PALETTE.blue },
-    { id: 'p4', startPos: { row: 4, col: 0 }, goalCondition: (r, c, bS) => c === bS - 1, color: PALETTE.orange },
+    { id: 'p1', startPos: (bS) => ({ row: bS - 1, col: Math.floor(bS / 2) }), goalCondition: (r, c, bS) => r === 0, color: PALETTE.green },
+    { id: 'p2', startPos: (bS) => ({ row: Math.floor(bS / 2), col: bS - 1 }), goalCondition: (r, c, bS) => c === 0, color: PALETTE.pink },
+    { id: 'p3', startPos: (bS) => ({ row: 0, col: Math.floor(bS / 2) }), goalCondition: (r, c, bS) => r === bS - 1, color: PALETTE.blue },
+    { id: 'p4', startPos: (bS) => ({ row: Math.floor(bS / 2), col: 0 }), goalCondition: (r, c, bS) => c === bS - 1, color: PALETTE.orange },
 ];
 
 export const GAME_COLORS = {
