@@ -1,6 +1,155 @@
 // common/GameLogic.js
 
 /**
+ * Applies a player's loss to the game state, returning a new state.
+ * @param {object} gameState - The current game state.
+ * @param {string} losingPlayerId - The ID of the player who lost.
+ * @param {string} reason - The reason for the loss (e.g., 'timeout', 'resignation').
+ * @returns {object} The new game state.
+ */
+export function applyPlayerLoss(gameState, losingPlayerId, reason) {
+    if (gameState.status !== 'active') return gameState;
+
+    let newState = JSON.parse(JSON.stringify(gameState)); // Deep copy
+
+    const loserIndex = newState.activePlayerIds.indexOf(losingPlayerId);
+    if (loserIndex > -1) {
+        newState.activePlayerIds.splice(loserIndex, 1);
+        newState.pawnPositions[losingPlayerId] = { row: -1, col: -1 };
+    } else {
+        return gameState; // Player not found or already removed
+    }
+    
+    // Check for game end condition
+    if (newState.activePlayerIds.length <= 1) {
+        const winnerId = newState.activePlayerIds[0] || null;
+        newState.status = 'ended';
+        newState.winner = winnerId;
+        // Adjust reason if winner is declared due to others losing
+        const finalReason = winnerId && reason !== 'goal' ? 'last player standing' : reason;
+        newState.reason = winnerId ? finalReason : 'draw';
+        newState.playerTurn = null;
+        newState.availablePawnMoves = [];
+    } else {
+        // The game continues, adjust the turn index if needed
+        if (newState.playerTurnIndex >= loserIndex) {
+            newState.playerTurnIndex %= newState.activePlayerIds.length;
+        }
+        newState.playerTurn = newState.activePlayerIds[newState.playerTurnIndex];
+        // Note: Recalculating moves will be handled by the caller after this function
+    }
+
+    return newState;
+}
+
+
+/**
+ * Switches the turn to the next active player.
+ * @param {object} gameState - The current game state.
+ * @returns {object} A new game state with the turn advanced.
+ */
+function _applySwitchTurn(gameState) {
+    const newState = { ...gameState };
+    newState.playerTurnIndex = (newState.playerTurnIndex + 1) % newState.activePlayerIds.length;
+    newState.playerTurn = newState.activePlayerIds[newState.playerTurnIndex];
+    return newState;
+}
+
+/**
+ * Applies a pawn move to the game state.
+ * @param {object} gameState - The current game state.
+ * @param {object} moveData - The move data ({row, col}).
+ * @param {array} players - The array of player configurations.
+ * @param {number} boardSize - The size of the board.
+ * @returns {object} The new game state.
+ */
+function _applyPawnMove(gameState, moveData, players, boardSize) {
+    let newState = JSON.parse(JSON.stringify(gameState)); // Deep copy
+    const currentPlayerId = newState.playerTurn;
+    newState.pawnPositions[currentPlayerId] = { row: moveData.row, col: moveData.col };
+    
+    const currentPlayer = players.find(p => p.id === currentPlayerId);
+    if (currentPlayer.goalCondition(moveData.row, moveData.col, boardSize)) {
+        newState.status = 'ended';
+        newState.winner = currentPlayerId;
+        newState.reason = 'goal';
+        newState.playerTurn = null;
+        newState.availablePawnMoves = [];
+    } else {
+        newState = _applySwitchTurn(newState);
+    }
+    return newState;
+}
+
+/**
+ * Applies a wall placement to the game state.
+ * @param {object} gameState - The current game state.
+ * @param {object} wallData - The wall data ({row, col, orientation}).
+ * @returns {object} The new game state.
+ */
+function _applyWallPlacement(gameState, wallData) {
+    let newState = JSON.parse(JSON.stringify(gameState)); // Deep copy
+    const currentPlayerId = newState.playerTurn;
+    newState.placedWalls.push(wallData);
+    newState.wallsLeft[currentPlayerId]--;
+    newState = _applySwitchTurn(newState);
+    return newState;
+}
+
+
+/**
+ * The main entry point for processing a move. It validates the move and, if legal,
+ * returns a new game state with the move applied.
+ * @param {object} gameState - The current game state.
+ * @param {object} move - The move object ({type, data}).
+ * @param {array} players - The array of player configurations.
+ * @param {object} config - The game configuration object.
+ * @returns {object|null} The new game state if the move was legal, otherwise null.
+ */
+export function applyMove(gameState, move, players, config) {
+    if (!move || !move.type || gameState.status !== 'active') return null;
+
+    let isLegal = false;
+    let nextState = null;
+
+    switch (move.type) {
+        case 'cell':
+            isLegal = isPawnMoveLegal(move.data, gameState.availablePawnMoves);
+            if (isLegal) {
+                nextState = _applyPawnMove(gameState, move.data, players, config.boardSize);
+            }
+            break;
+        case 'wall':
+            isLegal = isWallPlacementLegal(move.data, gameState, players, config.boardSize);
+            if(isLegal) {
+                nextState = _applyWallPlacement(gameState, move.data);
+            }
+            break;
+        case 'resign':
+            isLegal = true; // Resigning is always legal
+            nextState = applyPlayerLoss(gameState, gameState.playerTurn, 'resignation');
+            break;
+    }
+
+    if (isLegal && nextState) {
+        // If the game is still active after the move, recalculate the next player's legal moves.
+        if (nextState.status === 'active') {
+            nextState.availablePawnMoves = calculateLegalPawnMoves(
+                nextState.pawnPositions,
+                nextState.placedWalls,
+                players,
+                nextState.activePlayerIds,
+                nextState.playerTurnIndex,
+                config.boardSize
+            );
+        }
+        return nextState;
+    }
+    
+    return null; // Return null if the move was illegal
+}
+
+/**
  * Checks if a wall directly blocks movement between two adjacent cells.
  */
 function isWallBetween(placedWalls, r1, c1, r2, c2) {
@@ -64,44 +213,31 @@ export function calculateLegalPawnMoves(pawnPositions, placedWalls, players, act
 
         const opponentInCell = opponentPositions.find(p => p.row === move.r && p.col === move.c);
 
-        // First, check for a wall between the current player and the target adjacent square.
-        // If there's a wall, NO move (neither simple nor jump) is possible in this direction.
         if (isWallBetween(placedWalls, row, col, move.r, move.c)) {
             continue;
         }
 
         if (opponentInCell) {
-            // JUMP CASE: Adjacent square has an opponent and is not blocked by a wall.
-
-            // Check for a straight jump over the opponent.
             const jumpRow = opponentInCell.row + (opponentInCell.row - row);
             const jumpCol = opponentInCell.col + (opponentInCell.col - col);
             const wallBehindOpponent = isWallBetween(placedWalls, opponentInCell.row, opponentInCell.col, jumpRow, jumpCol);
             
             if (!wallBehindOpponent && jumpRow >= 0 && jumpRow < boardSize && jumpCol >= 0 && jumpCol < boardSize) {
-                // If there's no wall behind, the straight jump is the only possible move.
                 availablePawnMoves.push({ row: jumpRow, col: jumpCol });
             } else {
-                // If a wall IS behind the opponent, check for diagonal side-steps.
-                if (opponentInCell.row === row) { // Opponent is horizontal (left/right)
-                    // Check up
+                if (opponentInCell.row === row) { 
                     if (!isWallBetween(placedWalls, opponentInCell.row, opponentInCell.col, opponentInCell.row - 1, opponentInCell.col)) availablePawnMoves.push({ row: opponentInCell.row - 1, col: opponentInCell.col });
-                    // Check down
                     if (!isWallBetween(placedWalls, opponentInCell.row, opponentInCell.col, opponentInCell.row + 1, opponentInCell.col)) availablePawnMoves.push({ row: opponentInCell.row + 1, col: opponentInCell.col });
-                } else { // Opponent is vertical (up/down)
-                    // Check left
+                } else {
                     if (!isWallBetween(placedWalls, opponentInCell.row, opponentInCell.col, opponentInCell.row, opponentInCell.col - 1)) availablePawnMoves.push({ row: opponentInCell.row, col: opponentInCell.col - 1 });
-                    // Check right
                     if (!isWallBetween(placedWalls, opponentInCell.row, opponentInCell.col, opponentInCell.row, opponentInCell.col + 1)) availablePawnMoves.push({ row: opponentInCell.row, col: opponentInCell.col + 1 });
                 }
             }
         } else {
-            // SIMPLE MOVE CASE: The adjacent square is empty and not blocked by a wall.
             availablePawnMoves.push({ row: move.r, col: move.c });
         }
     }
 
-    // Final filter to ensure no move lands on another pawn's square.
     return availablePawnMoves.filter(m => 
         !opponentPositions.some(op => op.row === m.row && op.col === m.col) &&
         m.row >= 0 && m.row < boardSize && m.col >= 0 && m.col < boardSize
