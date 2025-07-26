@@ -17,6 +17,7 @@ export default class HumanController {
             this.resolveMove = resolve;
         });
     }
+
     handleInput(moveData) {
         if (this.waitingForMove && this.resolveMove) {
             this.waitingForMove = false;

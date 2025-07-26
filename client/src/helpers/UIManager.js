@@ -49,8 +49,8 @@ export default class UIManager {
         this.addControlListeners();
     }
     
-    showEndGameUI(endState, numPlayers) {
-        const { result, message } = this.formatEndGameMessage(endState, numPlayers);
+    showEndGameUI(endState) {
+        const { result, message } = this.formatEndGameMessage(endState);
         this.sidePanel.innerHTML = `
             <div class="end-game-panel">
                 <h2 class="end-game-result">${result}</h2>
@@ -79,18 +79,13 @@ export default class UIManager {
         `;
     }
 
-    formatEndGameMessage(endState, numPlayers) {
+    formatEndGameMessage(endState) {
         let result = "Game Over";
         let message = "The game ended in a draw.";
 
         if (endState.winner) {
             const winnerName = endState.winner.toUpperCase();
-            if (numPlayers === 2) {
-                 const localPlayerIsWinner = this.scene.localPlayerRole ? this.scene.localPlayerRole === endState.winner : endState.winner === 'p1';
-                 result = localPlayerIsWinner ? "VICTORY (1-0)" : "DEFEAT (0-1)";
-            } else {
-                 result = `${winnerName} WINS`;
-            }
+            result = `${winnerName} WINS`;
             
             switch(endState.reason) {
                 case 'goal': message = `${winnerName} reached the goal`; break;

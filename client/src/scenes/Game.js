@@ -48,7 +48,7 @@ export default class Game extends Phaser.Scene {
                 ...this.startupConfig,
                 boardSize: boardSize, 
                 timePerPlayer: 5 * 60 * 1000,
-                wallsPerPlayer: wallsPerPlayer, // Use the newly calculated value
+                wallsPerPlayer: wallsPerPlayer,
                 players: playersForGame, 
                 colors: GAME_COLORS,
             };
@@ -90,7 +90,7 @@ export default class Game extends Phaser.Scene {
             if (this.isGameOver) return;
             this.isGameOver = true;
             this.renderer.clearWallHighlight();
-            this.uiManager.showEndGameUI(gameState, this.gameConfig.numPlayers);
+            this.uiManager.showEndGameUI(gameState);
             Object.values(this.controllers).forEach(c => c.destroy());
             return;
         }
