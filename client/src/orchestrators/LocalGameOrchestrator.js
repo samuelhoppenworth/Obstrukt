@@ -52,7 +52,6 @@ export default class LocalGameOrchestrator {
         this.scene.events.on('wall-hover-in', this.onWallHoverIn, this);
         this.scene.events.on('wall-hover-out', () => this.scene.renderer.clearWallHighlight());
         this.scene.events.on('history-navigate', this.navigateHistory, this);
-        this.scene.events.on('human-action-input', this.handleMoveRequest, this);
 
         this.scene.onStateUpdate(this.getGameState());
     }
