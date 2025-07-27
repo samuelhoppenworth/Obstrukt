@@ -10,15 +10,13 @@ export default class UIManager {
     setupGameUI(players, initialTimers, config) {
         this.sidePanel.innerHTML = `
             <div class="player-info-list"></div>
-            <div class="action-buttons">
-                <button id="resign-btn">Resign</button>
-            </div>
+            <div id="action-container"></div>
             <div class="history-controls">
                 <button id="hist-start">«</button> <button id="hist-prev">‹</button>
                 <button id="hist-next">›</button> <button id="hist-end">»</button>
             </div>`;
         const playerList = this.sidePanel.querySelector('.player-info-list');
-        
+        console.log("players", players);
         let playerName = '';        
         players.forEach(player => {            
             const playerEl = document.createElement('div');
@@ -26,10 +24,10 @@ export default class UIManager {
             playerEl.id = `player-info-${player.id}`;
             const wallsPerPlayer = config.wallsPerPlayer;
             switch (player.id) {
-                case 'p1': playerName = 'Green'; break;
-                case 'p2': playerName = 'Pink'; break;
-                case 'p3': playerName = 'Blue'; break;
-                case 'p4': playerName = 'Orange'; break;
+                case 'p1': playerName = 'Red'; break;
+                case 'p2': playerName = 'Green'; break;
+                case 'p3': playerName = 'Purple'; break;
+                case 'p4': playerName = 'Blue'; break;
                 default:   playerName = player.id.toUpperCase();
             }
 
@@ -46,7 +44,52 @@ export default class UIManager {
             this.playerInfoElements[player.id] = { container: playerEl, timer: playerEl.querySelector('.player-timer'), walls: playerEl.querySelector('.player-walls') };
         });
         
-        this.addControlListeners();
+        this.showDefaultActions(config);
+        this.addHistoryButtonListeners();
+    }
+
+    showDefaultActions(config) {
+        const actionContainer = document.getElementById('action-container');
+        if (!actionContainer) return;
+        console.log("got here!");
+        
+        let drawButtonHTML = '';
+        console.log("config:", config);
+        if (config.gameType === 'online' && config.numPlayers === 2) {
+            console.log("ran");
+            drawButtonHTML = `<button id="draw-btn">Request Draw</button>`;
+        }
+
+        actionContainer.innerHTML = `
+            <div class="action-buttons">
+                <button id="resign-btn">Resign</button>
+                ${drawButtonHTML}
+            </div>`;
+        document.getElementById('resign-btn')?.addEventListener('click', () => this.scene.events.emit('resign-request'));
+        document.getElementById('draw-btn')?.addEventListener('click', () => this.scene.events.emit('draw-request'));
+    }
+
+    showDrawOffer() {
+        const actionContainer = document.getElementById('action-container');
+        if (!actionContainer) return;
+
+        actionContainer.innerHTML = `
+            <div class="panel-section">
+                <h4>Draw Offer from opponent</h4>
+                <div class="action-buttons-vertical" style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="accept-draw-btn" style="background-color: #4CAF50; color: white;">Accept</button>
+                    <button id="reject-draw-btn" style="background-color: #F44336; color: white;">Reject</button>
+                </div>
+            </div>`;
+        
+        document.getElementById('accept-draw-btn')?.addEventListener('click', () => this.scene.events.emit('accept-draw'));
+        document.getElementById('reject-draw-btn')?.addEventListener('click', () => this.scene.events.emit('reject-draw'));
+    }
+
+    showDrawPending() {
+        const actionContainer = document.getElementById('action-container');
+        if (!actionContainer) return;
+        actionContainer.innerHTML = `<p style="text-align: center;"><i>Draw offer sent. Waiting for response...</i></p>`;
     }
     
     showEndGameUI(endState) {
@@ -59,10 +102,8 @@ export default class UIManager {
                 <button id="new-game-btn">New Game</button>
             </div>
              <div class="history-controls">
-                <button id="hist-start">«</button>
-                <button id="hist-prev">‹</button>
-                <button id="hist-next">›</button>
-                <button id="hist-end">»</button>
+                <button id="hist-start">«</button> <button id="hist-prev">‹</button>
+                <button id="hist-next">›</button> <button id="hist-end">»</button>
             </div>
         `;
         document.getElementById('rematch-btn').addEventListener('click', () => this.scene.scene.start('Game', this.scene.startupConfig));
@@ -86,7 +127,6 @@ export default class UIManager {
         if (endState.winner) {
             const winnerName = endState.winner.toUpperCase();
             result = `${winnerName} WINS`;
-            
             switch(endState.reason) {
                 case 'goal': message = `${winnerName} reached the goal`; break;
                 case 'timeout': message = `Opponent ran out of time.`; break;
@@ -95,32 +135,24 @@ export default class UIManager {
                 case 'last player standing': message = `${winnerName} is the last player standing`; break;
                 default: message = `${winnerName} is victorious!`;
             }
+        } else {
+            if (endState.reason === 'draw by agreement') {
+                message = 'Draw by agreement.';
+            }
         }
         return { result, message };
     }
 
     updatePlayerInfo(gameState) {
         if (!gameState || !this.playerInfoElements) return;
-        
         const activePlayers = Object.keys(gameState.pawnPositions).filter(id => gameState.pawnPositions[id].row !== -1);
-        
         for (const playerId in this.playerInfoElements) {
             const playerUI = this.playerInfoElements[playerId];
-            
             if (gameState.wallsLeft && gameState.wallsLeft[playerId] !== undefined) {
                 playerUI.walls.textContent = `Walls: ${gameState.wallsLeft[playerId]}`;
             }
-
-            if (playerId === gameState.playerTurn) {
-                playerUI.container.classList.add('active-turn');
-            } else {
-                playerUI.container.classList.remove('active-turn');
-            }
-            
-            // Grey out players who are no longer active
-            if (!activePlayers.includes(playerId)) {
-                 playerUI.container.style.opacity = '0.4';
-            }
+            playerUI.container.classList.toggle('active-turn', playerId === gameState.playerTurn);
+            playerUI.container.style.opacity = activePlayers.includes(playerId) ? '1' : '0.4';
         }
     }
 
@@ -131,13 +163,6 @@ export default class UIManager {
                  this.playerInfoElements[playerId].timer.textContent = this.formatTime(timers[playerId]);
             }
         }
-    }
-    
-    addControlListeners() {
-        document.getElementById('resign-btn')?.addEventListener('click', () => {
-             this.scene.events.emit('human-action-input', { type: 'resign' });
-        });
-        this.addHistoryButtonListeners();
     }
     
     addHistoryButtonListeners() {
