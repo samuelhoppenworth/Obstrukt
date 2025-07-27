@@ -2,7 +2,7 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import GameManager from './gameManager.js';
+import GameManager from './GameManager.js';
 import { ALL_PLAYERS } from './gameConfig.js';
 
 const app = express();
@@ -84,21 +84,67 @@ io.on('connection', (socket) => {
         const playerRole = players[socket.id];
         
         if (playerRole === gameManager.gameState.playerTurn) {
-            gameManager.handleMoveRequest(moveData);
+            const moveMade = gameManager.handleMoveRequest(moveData);
+            if (moveMade) {
+                io.to(roomName).emit('drawOfferRescinded');
+            }
         } else {
             socket.emit('error', 'Not your turn.');
+        }
+    });
+
+    socket.on('resign', () => {
+        const roomName = Array.from(socket.rooms)[1];
+        if (!roomName || !rooms[roomName]) return;
+        const { gameManager, players } = rooms[roomName];
+        const playerRole = players[socket.id];
+        if (playerRole) {
+            gameManager.handlePlayerLoss(playerRole, 'resignation');
+        }
+    });
+
+    socket.on('requestDraw', () => {
+        const roomName = Array.from(socket.rooms)[1];
+        if (!roomName || !rooms[roomName]) return;
+        
+        const { gameManager, players } = rooms[roomName];
+        const playerRole = players[socket.id];
+
+        if (gameManager.config.numPlayers !== 2) return socket.emit('error', 'Draw offers only supported in 2-player games.');
+        
+        const opponentSocketId = Object.keys(players).find(id => id !== socket.id);
+        if (!opponentSocketId) return;
+
+        gameManager.gameState.drawOfferFrom = playerRole;
+
+        io.to(opponentSocketId).emit('drawOfferReceived', { from: playerRole });
+        socket.emit('drawOfferPending');
+    });
+
+    socket.on('respondToDraw', ({ accepted }) => {
+        const roomName = Array.from(socket.rooms)[1];
+        if (!roomName || !rooms[roomName]) return;
+
+        const { gameManager, players } = rooms[roomName];
+        const offererId = gameManager.gameState.drawOfferFrom;
+
+        if (!offererId) return socket.emit('error', 'There is no active draw offer.');
+
+        if (accepted) {
+            gameManager.endGameAsDraw('draw by agreement');
+        } else {
+            gameManager.gameState.drawOfferFrom = null;
+            io.to(roomName).emit('drawOfferRescinded');
         }
     });
 
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
 
-        // Remove from any queue they might be in
         for (const queueName in matchmakingQueues) {
             matchmakingQueues[queueName] = matchmakingQueues[queueName].filter(s => s.id !== socket.id);
         }
         
-        // Handle disconnect if they are in an active game
         const roomName = Object.keys(rooms).find(r => rooms[r] && Object.keys(rooms[r].players).includes(socket.id));
         if (roomName && rooms[roomName]) {
             const { gameManager, players } = rooms[roomName];
@@ -106,11 +152,9 @@ io.on('connection', (socket) => {
 
             if (gameManager.gameState.status === 'active') {
                 console.log(`Player ${playerRole} disconnected from active game in ${roomName}.`);
-                // Use the resign logic to handle their departure
                 gameManager.handlePlayerLoss(playerRole, 'disconnection');
             }
 
-            // If the room is empty after disconnect, clean it up
             const remainingPlayers = Object.keys(players).filter(pid => pid !== socket.id);
             if (remainingPlayers.length === 0) {
                 console.log(`Room ${roomName} is empty, deleting.`);

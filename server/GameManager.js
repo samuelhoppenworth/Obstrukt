@@ -9,7 +9,6 @@ export default class GameManager {
         this.timerInterval = null;
         this.history = [];
 
-        // --- Initialize Game State ---
         this.gameState = {
             status: 'active', winner: null, reason: null,
             playerTurn: config.players[0].id,
@@ -17,12 +16,12 @@ export default class GameManager {
             wallsLeft: config.players.reduce((acc, p) => { acc[p.id] = config.wallsPerPlayer; return acc; }, {}),
             timers: config.players.reduce((acc, p) => { acc[p.id] = config.timePerPlayer; return acc; }, {}),
             placedWalls: [],
-            availablePawnMoves: [], // Will be calculated next
+            availablePawnMoves: [],
             activePlayerIds: config.players.map(p => p.id),
             playerTurnIndex: 0,
+            drawOfferFrom: null,
         };
 
-        // Calculate initial moves
         this.gameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
             this.gameState.pawnPositions,
             this.gameState.placedWalls,
@@ -55,8 +54,9 @@ export default class GameManager {
     
     handleMoveRequest(move) {
         if (this.gameState.status !== 'active') return false;
+        
+        this.gameState.drawOfferFrom = null;
 
-        // Delegate move processing and validation to the centralized GameLogic
         const newGameState = GameLogic.applyMove(this.gameState, move, this.players, this.config);
 
         if (newGameState) {
@@ -66,20 +66,28 @@ export default class GameManager {
             return true;
         }
         
-        // Move was illegal if newGameState is null
         return false;
+    }
+
+    endGameAsDraw(reason) {
+        if (this.gameState.status !== 'active') return;
+        this.gameState.status = 'ended';
+        this.gameState.winner = null;
+        this.gameState.reason = reason;
+        this.gameState.playerTurn = null;
+        this.gameState.drawOfferFrom = null;
+        this.#recordHistory();
+        this.scene.events.emit('game-state-updated', this.getGameState());
     }
 
     handlePlayerLoss(losingPlayerId, reason) {
         if (this.gameState.status !== 'active') return;
 
-        // Delegate player loss processing to the centralized GameLogic
         const newGameState = GameLogic.applyPlayerLoss(this.gameState, losingPlayerId, reason);
 
         if (this.gameState !== newGameState) {
             this.gameState = newGameState;
 
-            // If game continues, we must recalculate moves for the new current player
             if (this.gameState.status === 'active') {
                  this.gameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
                     this.gameState.pawnPositions, this.gameState.placedWalls,
@@ -93,23 +101,17 @@ export default class GameManager {
         }
     }
 
-    // resignGame is just a specific case of handlePlayerLoss, but initiated by the player themselves
-    resignGame() {
-        this.handleMoveRequest({ type: 'resign' });
-    }
-
     getGameState() {
-        // Return a clean, serializable version of the state
         return {
             status: this.gameState.status, winner: this.gameState.winner, reason: this.gameState.reason,
             playerTurn: this.gameState.playerTurn, pawnPositions: this.gameState.pawnPositions,
             wallsLeft: this.gameState.wallsLeft, timers: this.gameState.timers,
             placedWalls: this.gameState.placedWalls, availablePawnMoves: this.gameState.availablePawnMoves,
+            drawOfferFrom: this.gameState.drawOfferFrom,
         };
     }
 
     #recordHistory() {
-        // We only want to store the serializable part of the state in history
         this.history.push(this.getGameState());
     }
 }
