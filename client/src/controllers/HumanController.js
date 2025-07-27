@@ -3,31 +3,14 @@
 export default class HumanController {
     constructor(scene) {
         this.scene = scene;
-        this.resolveMove = null;
-        this.waitingForMove = false;
-
-        // Listen for input events from the InputHandler
-        this.scene.events.on('human-action-input', this.handleInput, this);
     }
 
-    getMove(gameState) {
-        if (this.waitingForMove) return; // Prevent multiple pending promises
-        this.waitingForMove = true;
-        return new Promise(resolve => {
-            this.resolveMove = resolve;
-        });
-    }
+    // This class is a placeholder for local games. Its existence in the
+    // controllers list signals to the LocalGameOrchestrator that it should
+    // listen for 'human-action-input' events for this player's turn.
+    // All promise and event-handling logic has been removed.
 
-    handleInput(moveData) {
-        if (this.waitingForMove && this.resolveMove) {
-            this.waitingForMove = false;
-            this.resolveMove(moveData);
-            this.resolveMove = null;
-        }
-    }
-    
     destroy() {
-        // Clean up the event listener when the controller is no longer needed
-        this.scene.events.off('human-action-input', this.handleInput, this);
+        // No listeners to remove, but the method exists for API consistency.
     }
 }

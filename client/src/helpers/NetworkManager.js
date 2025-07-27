@@ -14,18 +14,32 @@ export default class NetworkManager {
         this.socket.on('gameStart', (data) => this.scene.events.emit('network-game-start', data));
         this.socket.on('game-state-updated', (gameState) => this.scene.events.emit('network-state-received', gameState));
         
-        // --- FIX: Listen for the new real-time timer event ---
         this.socket.on('timers-updated', (timers) => {
             if (this.scene && this.scene.uiManager) {
                 this.scene.uiManager.updateTimers(timers);
             }
         });
-        // ----------------------------------------------------
         
         this.socket.on('error', (message) => console.error('Server Error:', message));
+
+        this.socket.on('drawOfferReceived', (data) => this.scene.events.emit('draw-offer-received', data));
+        this.socket.on('drawOfferPending', () => this.scene.events.emit('draw-offer-pending'));
+        this.socket.on('drawOfferRescinded', () => this.scene.events.emit('draw-offer-rescinded'));
     }
 
     requestMove(move) {
         if (this.socket) this.socket.emit('requestMove', move);
+    }
+
+    sendResignationRequest() {
+        if (this.socket) this.socket.emit('resign');
+    }
+
+    sendDrawRequest() {
+        if (this.socket) this.socket.emit('requestDraw');
+    }
+
+    sendDrawResponse(accepted) {
+        if (this.socket) this.socket.emit('respondToDraw', { accepted });
     }
 }

@@ -11,21 +11,19 @@ export default class LocalGameOrchestrator {
         this.players = config.players;
         this.history = [];
         this.viewingHistoryIndex = -1;
+        this.controllers = {};
 
-        // --- Initialize Game State ---
         this.gameState = {
             status: 'active', winner: null, reason: null,
             playerTurn: config.players[0].id,
             pawnPositions: config.players.reduce((acc, p) => { acc[p.id] = p.startPos(config.boardSize); return acc; }, {}),
             wallsLeft: config.players.reduce((acc, p) => { acc[p.id] = config.wallsPerPlayer; return acc; }, {}),
             timers: config.players.reduce((acc, p) => { acc[p.id] = config.timePerPlayer; return acc; }, {}),
-            placedWalls: [],
-            availablePawnMoves: [],
+            placedWalls: [], availablePawnMoves: [],
             activePlayerIds: config.players.map(p => p.id),
             playerTurnIndex: 0,
         };
 
-        // Calculate initial moves using the centralized logic
         this.gameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
             this.gameState.pawnPositions,
             this.gameState.placedWalls,
@@ -39,21 +37,39 @@ export default class LocalGameOrchestrator {
     }
 
     initialize() {
-        this.scene.controllers = {};
         for (const player of this.players) {
-            const playerType = this.config.playerTypes[player.id];
-            if (playerType === 'human') {
-                this.scene.controllers[player.id] = new HumanController(this.scene);
-            } else if (playerType === 'ai') {
-                this.scene.controllers[player.id] = new AIController(this.scene, new SimpleHeuristicAI(), this);
+            if (this.config.playerTypes[player.id] === 'human') {
+                this.controllers[player.id] = new HumanController(this.scene);
+            } else if (this.config.playerTypes[player.id] === 'ai') {
+                this.controllers[player.id] = new AIController(this.scene, new SimpleHeuristicAI(), this);
             }
         }
         
         this.scene.events.on('wall-hover-in', this.onWallHoverIn, this);
         this.scene.events.on('wall-hover-out', () => this.scene.renderer.clearWallHighlight());
         this.scene.events.on('history-navigate', this.navigateHistory, this);
+        this.scene.events.on('resign-request', this.handleResignation, this);
+        this.scene.events.on('human-action-input', (move) => {
+            const currentPlayerId = this.gameState.playerTurn;
+            if (this.controllers[currentPlayerId] instanceof HumanController) {
+                this.handleMoveRequest(move);
+            }
+        });
 
         this.scene.onStateUpdate(this.getGameState());
+    }
+
+    async onStateUpdated(gameState) {
+        const currentPlayerId = gameState.playerTurn;
+        if (!currentPlayerId || !this.controllers[currentPlayerId] || this.gameState.status !== 'active') return;
+
+        const currentController = this.controllers[currentPlayerId];
+        if (currentController instanceof AIController) {
+            const move = await currentController.getMove();
+            if (!this.scene.isGameOver) {
+                this.handleMoveRequest(move);
+            }
+        }
     }
 
     update(delta) {
@@ -71,7 +87,6 @@ export default class LocalGameOrchestrator {
     handleMoveRequest(move) {
         if (this.isViewingHistory() || this.gameState.status !== 'active') return;
         
-        // Delegate move processing and validation to the centralized GameLogic
         const newGameState = GameLogic.applyMove(this.getGameState(), move, this.players, this.config);
 
         if (newGameState) {
@@ -79,25 +94,26 @@ export default class LocalGameOrchestrator {
             this.#recordHistory();
             this.scene.onStateUpdate(this.getGameState());
         } else {
-             // If move was illegal, re-prompt human player
              const currentPlayerId = this.gameState.playerTurn;
-             const currentController = this.scene.controllers[currentPlayerId];
-             if (currentController instanceof HumanController) {
-                 this.scene.startTurn(this.getGameState());
+             if (this.controllers[currentPlayerId] instanceof HumanController) {
+                 this.onStateUpdated(this.getGameState());
              }
+        }
+    }
+
+    handleResignation() {
+        if (this.gameState.status !== 'active') return;
+        const currentPlayerId = this.gameState.playerTurn;
+        if (this.config.playerTypes[currentPlayerId] === 'human') {
+            this.handlePlayerLoss(currentPlayerId, 'resignation');
         }
     }
 
     handlePlayerLoss(losingPlayerId, reason) {
         if (this.gameState.status !== 'active') return;
-
-        // Delegate player loss processing to the centralized GameLogic
         const newGameState = GameLogic.applyPlayerLoss(this.getGameState(), losingPlayerId, reason);
-
         if (this.gameState !== newGameState) {
             this.gameState = newGameState;
-            
-            // If game continues, we must recalculate moves
             if (this.gameState.status === 'active') {
                  this.gameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
                     this.gameState.pawnPositions, this.gameState.placedWalls,
@@ -105,24 +121,19 @@ export default class LocalGameOrchestrator {
                     this.gameState.playerTurnIndex, this.config.boardSize
                 );
             }
-            
             this.#recordHistory();
             this.scene.onStateUpdate(this.getGameState());
         }
     }
     
-    getGameState() { 
-        return JSON.parse(JSON.stringify(this.gameState)); 
-    }
+    getGameState() { return JSON.parse(JSON.stringify(this.gameState)); }
 
     onWallHoverIn(wallProps) {
         const isLegal = GameLogic.isWallPlacementLegal(wallProps, this.gameState, this.players, this.config.boardSize);
         this.scene.renderer.highlightWallSlot(wallProps, isLegal);
     }
 
-    isViewingHistory() {
-        return this.viewingHistoryIndex >= 0 && this.viewingHistoryIndex < this.history.length - 1;
-    }
+    isViewingHistory() { return this.viewingHistoryIndex >= 0 && this.viewingHistoryIndex < this.history.length - 1; }
 
     navigateHistory(direction) {
         let newIndex = this.viewingHistoryIndex;
@@ -132,19 +143,24 @@ export default class LocalGameOrchestrator {
             case 'next': if (this.viewingHistoryIndex < this.history.length - 1) newIndex++; break;
             case 'end': newIndex = this.history.length - 1; break;
         }
-
         if (newIndex !== this.viewingHistoryIndex) {
             this.viewingHistoryIndex = newIndex;
-            const historicState = this.history[this.viewingHistoryIndex];
-            this.scene.onStateUpdate(historicState, true);
+            this.scene.onStateUpdate(this.history[this.viewingHistoryIndex], true);
         }
     }
 
     #recordHistory() {
-        if (this.isViewingHistory()) {
-            this.history.splice(this.viewingHistoryIndex + 1);
-        }
+        if (this.isViewingHistory()) { this.history.splice(this.viewingHistoryIndex + 1); }
         this.history.push(this.getGameState());
         this.viewingHistoryIndex = this.history.length - 1;
+    }
+
+    destroy() {
+        this.scene.events.off('wall-hover-in', this.onWallHoverIn, this);
+        this.scene.events.off('wall-hover-out');
+        this.scene.events.off('history-navigate', this.navigateHistory, this);
+        this.scene.events.off('resign-request', this.handleResignation, this);
+        this.scene.events.off('human-action-input');
+        Object.values(this.controllers).forEach(c => c.destroy());
     }
 }
