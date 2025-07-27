@@ -5,37 +5,28 @@ export default class Renderer {
         this.scene = scene;
         this.boardSize = config.boardSize || 9;
 
-        // --- START OF DYNAMIC SCALING WITH PADDING FIX ---
-
         const availableSize = Math.min(scene.sys.game.config.width, scene.sys.game.config.height);
         const gapToCellRatio = 0.25; // Gaps are 25% of the size of a cell.
 
-        // **THE FIX:** Add a padding unit to our calculation. 
-        // A value of 1.0 represents half a cell of padding on each side (left/right or top/bottom).
-        // This exactly replicates the look of the original 9x9 board.
         const paddingInCellUnits = 1.0; 
-
-        // The total number of "units" now includes the cells, the gaps, AND the padding.
         const totalUnits = (this.boardSize + paddingInCellUnits) + ((this.boardSize - 1) * gapToCellRatio);
 
-        // The rest of the calculation remains the same, but now produces a smaller grid.
         this.cellSize = availableSize / totalUnits;
         this.gapSize = this.cellSize * gapToCellRatio;
-
-        // --- END OF FIX ---
-             
+         
         this.staticBoardGraphics = this.scene.add.graphics();
         this.pawnGroup = this.scene.add.group();
         this.wallGroup = this.scene.add.group();
         this.highlightedCellGroup = this.scene.add.group();
         this.highlightedWall = this.scene.add.graphics();
 
-        // This calculation now correctly results in a grid smaller than the canvas.
+        this.highlightedCellGroup.setDepth(0);  // Behind
+        this.wallGroup.setDepth(1);             // In front
+
         const gridTotalDimension = this.boardSize * this.cellSize + (this.boardSize - 1) * this.gapSize;
         const canvasWidth = this.scene.sys.game.config.width;
         const canvasHeight = this.scene.sys.game.config.height;
 
-        // The startX/startY will now be a positive number, creating the padding you liked.
         this.startX = (canvasWidth - gridTotalDimension) / 2;
         this.startY = (canvasHeight - gridTotalDimension) / 2;
         
@@ -57,9 +48,6 @@ export default class Renderer {
         this.highlightedWall.destroy();
     }
     
-    // ... NO OTHER FUNCTIONS IN THIS FILE NEED TO BE CHANGED ...
-    // They are all written to be dependent on `this.cellSize` and `this.gapSize`.
-
     setPerspective(playerId) {
         this.perspective = playerId || 'p1';
     }
@@ -86,16 +74,21 @@ export default class Renderer {
         this.#drawPawns(gameState.pawnPositions);
         this.#drawWalls(gameState.placedWalls);
         
-        if (options.shouldShowHighlights) {
-            this.highlightLegalMoves(gameState.availablePawnMoves);
+        if (options.shouldShowHighlights && gameState.playerTurn) {
+            const highlightColor = this.playerColors[gameState.playerTurn];
+            this.highlightLegalMoves(gameState.availablePawnMoves, highlightColor);
         }
     }
 
-    highlightLegalMoves(moves) {
+    highlightLegalMoves(moves, color) {
         moves.forEach(move => {
             const { x, y } = this.#getCellPixelCoords(move.row, move.col);
             const rect = this.scene.add.rectangle(x + this.cellSize / 2, y + this.cellSize / 2, this.cellSize, this.cellSize);
-            rect.setStrokeStyle(4, this.colors.legalMove, 0.7);
+            rect.setStrokeStyle(8, color, 1);
+            rect.setFillStyle(color, 0.05);
+            rect.setBlendMode(Phaser.BlendModes.ADD);
+            rect.setDepth(1); // Lower than shadows and walls
+
             this.highlightedCellGroup.add(rect);
         });
     }
@@ -120,18 +113,34 @@ export default class Renderer {
                 const { x, y } = this.#getCellPixelCoords(pos.row, pos.col);
                 const color = this.playerColors[playerId];
                 const pawn = this.scene.add.circle(x + this.cellSize / 2, y + this.cellSize / 2, pawnRadius, color);
+
                 this.pawnGroup.add(pawn);
             }
         }
     }
 
-    #drawWalls(placedWalls) {
-        for (const wall of placedWalls) {
-            const { x, y, width, height } = this.#getWallPixelProps(wall.row, wall.col, wall.orientation);
-            const wallRect = this.scene.add.rectangle(x, y, width, height, this.colors.wall).setOrigin(0, 0);
-            this.wallGroup.add(wallRect);
-        }
+#drawWalls(placedWalls) {
+    const shadowOffset = this.cellSize * 0.1; // tweak for length of shadow
+    const shadowAlpha = 0.3;
+    const shadowColor = 0x000000;
+
+    for (const wall of placedWalls) {
+        const { x, y, width, height } = this.#getWallPixelProps(wall.row, wall.col, wall.orientation);
+
+        const shadowRect = this.scene.add.rectangle(x + shadowOffset, y + shadowOffset, width, height, shadowColor, shadowAlpha)
+            .setOrigin(0, 0)
+            .setDepth(2);  // Shadow is above highlights
+
+        // Draw actual wall on top of everything
+        const wallRect = this.scene.add.rectangle(x, y, width, height, this.colors.wall)
+            .setOrigin(0, 0)
+            .setDepth(3);  // Wall is highest
+
+        // Add both to the wallGroup to keep them managed
+        this.wallGroup.add(shadowRect);
+        this.wallGroup.add(wallRect);
     }
+}
 
     #transformCellCoords(row, col) {
         const bS = this.boardSize;
