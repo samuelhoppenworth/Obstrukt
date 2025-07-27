@@ -68,10 +68,6 @@ export default class InputHandler {
         }
     }
 
-    /**
-     * Converts view-space WALL coordinates and orientation to model-space.
-     * This is the perfect inverse of the renderer's logic.
-     */
     #untransformWallCoords(viewRow, viewCol, viewOrientation) {
         const bS = this.boardSize;
         let modelRow = viewRow;
@@ -79,22 +75,38 @@ export default class InputHandler {
         let modelOrientation = viewOrientation;
 
         switch (this.perspective) {
-            case 'p2': // Inverse of 90-degree CW rotation is 270-degree CW
-                modelRow = viewCol;
-                modelCol = (bS - 2) - viewRow;
-                modelOrientation = viewOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+            case 'p2': // Rotated 90 degrees clockwise
+                if (viewOrientation === 'horizontal') {
+                    // A horizontal VIEW wall was originally a VERTICAL MODEL wall.
+                    modelOrientation = 'vertical';
+                    modelRow = (bS - 1) - viewCol;
+                    modelCol = viewRow;
+                } else { // viewOrientation is 'vertical'
+                    // A vertical VIEW wall was originally a HORIZONTAL MODEL wall.
+                    modelOrientation = 'horizontal';
+                    modelRow = viewCol;
+                    modelCol = (bS - 2) - viewRow;
+                }
                 break;
 
-            case 'p3': // Inverse of 180-degree rotation is 180-degree
+            case 'p3': // Rotated 180 degrees
                 modelRow = (bS - 2) - viewRow;
                 modelCol = (bS - 2) - viewCol;
-                // Orientation does not change
                 break;
 
-            case 'p4': // Inverse of 270-degree CW rotation is 90-degree CW
-                modelRow = (bS - 2) - viewCol;
-                modelCol = viewRow;
-                modelOrientation = viewOrientation === 'horizontal' ? 'vertical' : 'horizontal';
+            case 'p4': // Rotated 270 degrees clockwise
+                // FIX: This section now has the correct inverse calculations.
+                if (viewOrientation === 'horizontal') {
+                    // A horizontal VIEW wall was originally a VERTICAL MODEL wall.
+                    modelOrientation = 'vertical';
+                    modelRow = viewCol;
+                    modelCol = (bS - 2) - viewRow; // Corrected from (bS - 1)
+                } else { // viewOrientation is 'vertical'
+                    // A vertical VIEW wall was originally a HORIZONTAL MODEL wall.
+                    modelOrientation = 'horizontal';
+                    modelRow = (bS - 1) - viewCol; // Corrected from (bS - 2)
+                    modelCol = viewRow;
+                }
                 break;
                 
             case 'p1':
