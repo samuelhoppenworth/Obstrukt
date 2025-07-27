@@ -1,53 +1,36 @@
 // common/GameLogic.js
 
-/**
- * Applies a player's loss to the game state, returning a new state.
- * @param {object} gameState - The current game state.
- * @param {string} losingPlayerId - The ID of the player who lost.
- * @param {string} reason - The reason for the loss (e.g., 'timeout', 'resignation').
- * @returns {object} The new game state.
- */
 export function applyPlayerLoss(gameState, losingPlayerId, reason) {
     if (gameState.status !== 'active') return gameState;
 
-    let newState = JSON.parse(JSON.stringify(gameState)); // Deep copy
+    let newState = JSON.parse(JSON.stringify(gameState));
 
     const loserIndex = newState.activePlayerIds.indexOf(losingPlayerId);
     if (loserIndex > -1) {
         newState.activePlayerIds.splice(loserIndex, 1);
         newState.pawnPositions[losingPlayerId] = { row: -1, col: -1 };
     } else {
-        return gameState; // Player not found or already removed
+        return gameState;
     }
     
-    // Check for game end condition
     if (newState.activePlayerIds.length <= 1) {
         const winnerId = newState.activePlayerIds[0] || null;
         newState.status = 'ended';
         newState.winner = winnerId;
-        // Adjust reason if winner is declared due to others losing
         const finalReason = winnerId && reason !== 'goal' ? 'last player standing' : reason;
         newState.reason = winnerId ? finalReason : 'draw';
         newState.playerTurn = null;
         newState.availablePawnMoves = [];
     } else {
-        // The game continues, adjust the turn index if needed
         if (newState.playerTurnIndex >= loserIndex) {
             newState.playerTurnIndex %= newState.activePlayerIds.length;
         }
         newState.playerTurn = newState.activePlayerIds[newState.playerTurnIndex];
-        // Note: Recalculating moves will be handled by the caller after this function
     }
 
     return newState;
 }
 
-
-/**
- * Switches the turn to the next active player.
- * @param {object} gameState - The current game state.
- * @returns {object} A new game state with the turn advanced.
- */
 function _applySwitchTurn(gameState) {
     const newState = { ...gameState };
     newState.playerTurnIndex = (newState.playerTurnIndex + 1) % newState.activePlayerIds.length;
@@ -55,16 +38,8 @@ function _applySwitchTurn(gameState) {
     return newState;
 }
 
-/**
- * Applies a pawn move to the game state.
- * @param {object} gameState - The current game state.
- * @param {object} moveData - The move data ({row, col}).
- * @param {array} players - The array of player configurations.
- * @param {number} boardSize - The size of the board.
- * @returns {object} The new game state.
- */
 function _applyPawnMove(gameState, moveData, players, boardSize) {
-    let newState = JSON.parse(JSON.stringify(gameState)); // Deep copy
+    let newState = JSON.parse(JSON.stringify(gameState));
     const currentPlayerId = newState.playerTurn;
     newState.pawnPositions[currentPlayerId] = { row: moveData.row, col: moveData.col };
     
@@ -81,14 +56,8 @@ function _applyPawnMove(gameState, moveData, players, boardSize) {
     return newState;
 }
 
-/**
- * Applies a wall placement to the game state.
- * @param {object} gameState - The current game state.
- * @param {object} wallData - The wall data ({row, col, orientation}).
- * @returns {object} The new game state.
- */
 function _applyWallPlacement(gameState, wallData) {
-    let newState = JSON.parse(JSON.stringify(gameState)); // Deep copy
+    let newState = JSON.parse(JSON.stringify(gameState));
     const currentPlayerId = newState.playerTurn;
     newState.placedWalls.push(wallData);
     newState.wallsLeft[currentPlayerId]--;
@@ -96,16 +65,6 @@ function _applyWallPlacement(gameState, wallData) {
     return newState;
 }
 
-
-/**
- * The main entry point for processing a move. It validates the move and, if legal,
- * returns a new game state with the move applied.
- * @param {object} gameState - The current game state.
- * @param {object} move - The move object ({type, data}).
- * @param {array} players - The array of player configurations.
- * @param {object} config - The game configuration object.
- * @returns {object|null} The new game state if the move was legal, otherwise null.
- */
 export function applyMove(gameState, move, players, config) {
     if (!move || !move.type || gameState.status !== 'active') return null;
 
@@ -125,14 +84,9 @@ export function applyMove(gameState, move, players, config) {
                 nextState = _applyWallPlacement(gameState, move.data);
             }
             break;
-        case 'resign':
-            isLegal = true; // Resigning is always legal
-            nextState = applyPlayerLoss(gameState, gameState.playerTurn, 'resignation');
-            break;
     }
 
     if (isLegal && nextState) {
-        // If the game is still active after the move, recalculate the next player's legal moves.
         if (nextState.status === 'active') {
             nextState.availablePawnMoves = calculateLegalPawnMoves(
                 nextState.pawnPositions,
@@ -146,19 +100,16 @@ export function applyMove(gameState, move, players, config) {
         return nextState;
     }
     
-    return null; // Return null if the move was illegal
+    return null;
 }
 
-/**
- * Checks if a wall directly blocks movement between two adjacent cells.
- */
 function isWallBetween(placedWalls, r1, c1, r2, c2) {
-    if (c1 === c2) { // Moving vertically
+    if (c1 === c2) {
         const wallRow = Math.min(r1, r2);
         return placedWalls.some(wall => 
             wall.orientation === 'horizontal' && wall.row === wallRow && (wall.col === c1 || wall.col === c1 - 1)
         );
-    } else if (r1 === r2) { // Moving horizontally
+    } else if (r1 === r2) {
         const wallCol = Math.min(c1, c2);
         return placedWalls.some(wall =>
             wall.orientation === 'vertical' && wall.col === wallCol && (wall.row === r1 || wall.row === r1 - 1)
@@ -167,9 +118,6 @@ function isWallBetween(placedWalls, r1, c1, r2, c2) {
     return false;
 }
 
-/**
- * Performs a Breadth-First Search for pathfinding.
- */
 function pathExistsFor(startPos, isGoal, placedWalls, boardSize) {
     if (startPos.row === -1) return true;
     const queue = [startPos];
@@ -189,9 +137,6 @@ function pathExistsFor(startPos, isGoal, placedWalls, boardSize) {
     return false;
 }
 
-/**
- * Calculates all legal pawn moves for the current player with corrected jump logic.
- */
 export function calculateLegalPawnMoves(pawnPositions, placedWalls, players, activePlayerIds, playerTurnIndex, boardSize) {
     const availablePawnMoves = [];
     const currentPlayerId = activePlayerIds[playerTurnIndex];
@@ -244,10 +189,6 @@ export function calculateLegalPawnMoves(pawnPositions, placedWalls, players, act
     );
 }
 
-
-/**
- * Checks if a proposed wall placement is legal.
- */
 export function isWallPlacementLegal(wallData, gameState, players, boardSize) {
     const { row, col, orientation } = wallData;
     const { placedWalls, wallsLeft, pawnPositions, activePlayerIds, playerTurn } = gameState;
@@ -269,9 +210,6 @@ export function isWallPlacementLegal(wallData, gameState, players, boardSize) {
     );
 }
 
-/**
- * Checks if a proposed pawn move is legal.
- */
 export function isPawnMoveLegal(moveData, availablePawnMoves) {
     return availablePawnMoves.some(move => move.row === moveData.row && move.col === moveData.col);
 }

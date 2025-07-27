@@ -10,9 +10,8 @@ export default class Game extends Phaser.Scene {
     constructor() { super({ key: 'Game' }); }
     init(data) { this.startupConfig = data; }
 
-    async create() {
+    create() {
         this.isGameOver = false;
-        this.controllers = {};
         this.localPlayerRole = 'p1';
         this.latestGameState = null;
         this.orchestrator = null;
@@ -29,19 +28,10 @@ export default class Game extends Phaser.Scene {
 
             let wallsPerPlayer;
             switch (boardSize) {
-                case 5:
-                    wallsPerPlayer = (numPlayers === 2) ? 4 : 2;
-                    break;
-                case 7:
-                    wallsPerPlayer = (numPlayers === 2) ? 8 : 4;
-                    break;
-                case 11:
-                    wallsPerPlayer = (numPlayers === 2) ? 12 : 6;
-                    break;
-                case 9:
-                default:
-                    wallsPerPlayer = (numPlayers === 2) ? 10 : 5;
-                    break;
+                case 5: wallsPerPlayer = (numPlayers === 2) ? 4 : 2; break;
+                case 7: wallsPerPlayer = (numPlayers === 2) ? 8 : 4; break;
+                case 11: wallsPerPlayer = (numPlayers === 2) ? 12 : 6; break;
+                case 9: default: wallsPerPlayer = (numPlayers === 2) ? 10 : 5; break;
             }
 
             this.gameConfig = {
@@ -69,54 +59,41 @@ export default class Game extends Phaser.Scene {
     onStateUpdate(gameState, isHistoryView = false) {
         this.latestGameState = gameState;
 
-        let showHighlights = false;
+        let shouldShowHighlights = false;
         const currentPlayerId = gameState.playerTurn;
 
         if (this.startupConfig.gameType === 'online') {
-            showHighlights = (currentPlayerId === this.localPlayerRole);
+            shouldShowHighlights = (currentPlayerId === this.localPlayerRole);
         } else {
             if (currentPlayerId && this.gameConfig.playerTypes[currentPlayerId] === 'human') {
-                showHighlights = true;
+                shouldShowHighlights = true;
             }
         }
 
-        const perspective = this.startupConfig.gameType === 'online' ? this.localPlayerRole : 'p1';
-        this.renderer.drawGameState(gameState, { perspective, shouldShowHighlights: showHighlights });
-
-        this.uiManager.updateTimers(gameState.timers);
+        if (this.renderer) {
+            const perspective = this.startupConfig.gameType === 'online' ? this.localPlayerRole : 'p1';
+            this.renderer.drawGameState(gameState, { perspective, shouldShowHighlights });
+        }
+        
         this.uiManager.updatePlayerInfo(gameState);
+        this.uiManager.updateTimers(gameState.timers);
         
         if (gameState.status === 'ended') {
             if (this.isGameOver) return;
             this.isGameOver = true;
             this.renderer.clearWallHighlight();
             this.uiManager.showEndGameUI(gameState);
-            Object.values(this.controllers).forEach(c => c.destroy());
+            this.orchestrator.destroy();
             return;
         }
         
         if (!isHistoryView) {
-            this.startTurn(gameState);
-        }
-    }
-    
-    async startTurn(gameState) {
-        const currentPlayerId = gameState.playerTurn;
-        if (!currentPlayerId || !this.controllers[currentPlayerId]) return;
-
-        const currentController = this.controllers[currentPlayerId];
-        if (currentController.waitingForMove) return;
-        const move = await currentController.getMove(gameState);
-
-        if (this.isGameOver || !move) return;
-
-        if (this.orchestrator instanceof LocalGameOrchestrator) {
-             this.orchestrator.handleMoveRequest(move);
+            this.orchestrator.onStateUpdated(gameState);
         }
     }
     
     update(time, delta) {
-        if (this.orchestrator instanceof LocalGameOrchestrator) {
+        if (this.orchestrator && this.orchestrator.update) {
             this.orchestrator.update(delta);
         }
     }
