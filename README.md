@@ -1,8 +1,8 @@
 # Obstrukt Online
 
 <p align="center">
-    <img src="https://github.com/user-attachments/assets/a32a2c12-acc1-47f8-8987-bf7f6f8cbb86" width="45%"  />
-    <img src="https://github.com/user-attachments/assets/d60087a6-b491-42b6-beea-7c720eb49bdb" width="45%" />
+    <img src="https://github.com/user-attachments/assets/a32a2c12-acc1-47f8-8987-bf7f6f8cbb86" width="49%"  />
+    <img src="https://github.com/user-attachments/assets/d60087a6-b491-42b6-beea-7c720eb49bdb" width="49%" />
 </p>
 
 An ongoing effort to implement Obstrukt, an online multi-player turn-based board game heavily inspired Quoridor, as well as AI opponents for single-player sessions.
