@@ -114,6 +114,7 @@ export default class Menu extends Phaser.Scene {
                 <label for="${player.id}-type">Player ${index + 1}:</label>
                 <select id="${player.id}-type">
                     <option value="human" ${index === 0 ? 'selected' : ''}>Human</option>
+                    <option value="ai" ${index !== 0 ? 'selected' : ''}>AI</option>
                 </select>
             `;
             container.appendChild(item);

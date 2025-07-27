@@ -71,6 +71,7 @@ export function applyMove(gameState, move, players, config) {
     let isLegal = false;
     let nextState = null;
 
+    console.log("apply move ", move);
     switch (move.type) {
         case 'cell':
             isLegal = isPawnMoveLegal(move.data, gameState.availablePawnMoves);
@@ -85,6 +86,8 @@ export function applyMove(gameState, move, players, config) {
             }
             break;
     }
+    console.log("islegal: ", isLegal);
+    console.log("nextState: ", nextState);
 
     if (isLegal && nextState) {
         if (nextState.status === 'active') {

@@ -1,6 +1,5 @@
 // src/orchestrators/LocalGameOrchestrator.js
 import * as GameLogic from '../../../common/GameLogic.js';
-import SimpleHeuristicAI from '../ai/SimpleHeuristicAI.js';
 import AIController from '../controllers/AIController.js';
 import HumanController from '../controllers/HumanController.js';
 
@@ -12,8 +11,10 @@ export default class LocalGameOrchestrator {
         this.history = [];
         this.viewingHistoryIndex = -1;
         this.controllers = {};
+        this.isAIThinking = false;
 
         this.gameState = {
+            boardSize: config.boardSize,
             status: 'active', winner: null, reason: null,
             playerTurn: config.players[0].id,
             pawnPositions: config.players.reduce((acc, p) => { acc[p.id] = p.startPos(config.boardSize); return acc; }, {}),
@@ -25,24 +26,18 @@ export default class LocalGameOrchestrator {
         };
 
         this.gameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
-            this.gameState.pawnPositions,
-            this.gameState.placedWalls,
-            this.players,
-            this.gameState.activePlayerIds,
-            this.gameState.playerTurnIndex,
-            this.config.boardSize
+            this.gameState.pawnPositions, this.gameState.placedWalls,
+            this.players, this.gameState.activePlayerIds,
+            this.gameState.playerTurnIndex, this.config.boardSize
         );
-        
         this.#recordHistory();
     }
 
     initialize() {
         for (const player of this.players) {
-            if (this.config.playerTypes[player.id] === 'human') {
-                this.controllers[player.id] = new HumanController(this.scene);
-            } else if (this.config.playerTypes[player.id] === 'ai') {
-                this.controllers[player.id] = new AIController(this.scene, new SimpleHeuristicAI(), this);
-            }
+            const playerType = this.config.playerTypes[player.id];
+            if (playerType === 'human') this.controllers[player.id] = new HumanController(this.scene);
+            else if (playerType === 'ai') this.controllers[player.id] = new AIController(this.scene, this);
         }
         
         this.scene.events.on('wall-hover-in', this.onWallHoverIn, this);
@@ -50,63 +45,70 @@ export default class LocalGameOrchestrator {
         this.scene.events.on('history-navigate', this.navigateHistory, this);
         this.scene.events.on('resign-request', this.handleResignation, this);
         this.scene.events.on('human-action-input', (move) => {
-            const currentPlayerId = this.gameState.playerTurn;
-            if (this.controllers[currentPlayerId] instanceof HumanController) {
-                this.handleMoveRequest(move);
-            }
+            if (this.controllers[this.gameState.playerTurn] instanceof HumanController) this.handleMoveRequest(move);
         });
-
         this.scene.onStateUpdate(this.getGameState());
     }
 
-    async onStateUpdated(gameState) {
-        const currentPlayerId = gameState.playerTurn;
-        if (!currentPlayerId || !this.controllers[currentPlayerId] || this.gameState.status !== 'active') return;
-
-        const currentController = this.controllers[currentPlayerId];
-        if (currentController instanceof AIController) {
-            const move = await currentController.getMove();
-            if (!this.scene.isGameOver) {
-                this.handleMoveRequest(move);
-            }
-        }
+    onStateUpdated(gameState) {
+        // This function is now just an event hook for the UI. The core logic is in `update`.
     }
 
     update(delta) {
-        if (this.gameState.status !== 'active') return;
-
+        if (this.gameState.status !== 'active' || this.isViewingHistory()) return;
         const currentPlayerId = this.gameState.playerTurn;
+        if (!currentPlayerId) return;
+
+        // The update loop is never blocked and always decrements the timer.
         this.gameState.timers[currentPlayerId] -= delta;
         this.scene.uiManager.updateTimers(this.gameState.timers);
 
         if (this.gameState.timers[currentPlayerId] <= 0) {
             this.handlePlayerLoss(currentPlayerId, 'timeout');
+            return;
+        }
+
+        const currentController = this.controllers[currentPlayerId];
+        if (currentController instanceof AIController && !this.isAIThinking) {
+            this.isAIThinking = true;
+            
+            // This call is now TRULY non-blocking. It sends a message and returns immediately.
+            currentController.getMove().then(move => {
+                // This callback runs when the worker has finished its calculation.
+                if (this.scene.isGameOver || this.gameState.playerTurn !== currentPlayerId) {
+                    this.isAIThinking = false;
+                    return;
+                }
+                
+                if (move && move.type) this.handleMoveRequest(move);
+                else this.handlePlayerLoss(currentPlayerId, 'error');
+
+                this.isAIThinking = false;
+            });
         }
     }
 
     handleMoveRequest(move) {
         if (this.isViewingHistory() || this.gameState.status !== 'active') return;
-        
-        const newGameState = GameLogic.applyMove(this.getGameState(), move, this.players, this.config);
+        if (move.type === 'pawn') move.type = 'cell';
 
+        const newGameState = GameLogic.applyMove(this.getGameState(), move, this.players, this.config);
         if (newGameState) {
             this.gameState = newGameState;
             this.#recordHistory();
             this.scene.onStateUpdate(this.getGameState());
         } else {
-             const currentPlayerId = this.gameState.playerTurn;
-             if (this.controllers[currentPlayerId] instanceof HumanController) {
-                 this.onStateUpdated(this.getGameState());
-             }
+            console.warn("Illegal move blocked by orchestrator:", move);
+            if (this.controllers[this.gameState.playerTurn] instanceof AIController) {
+                this.handlePlayerLoss(this.gameState.playerTurn, 'illegal move');
+            }
         }
     }
 
     handleResignation() {
         if (this.gameState.status !== 'active') return;
         const currentPlayerId = this.gameState.playerTurn;
-        if (this.config.playerTypes[currentPlayerId] === 'human') {
-            this.handlePlayerLoss(currentPlayerId, 'resignation');
-        }
+        if (this.config.playerTypes[currentPlayerId] === 'human') this.handlePlayerLoss(currentPlayerId, 'resignation');
     }
 
     handlePlayerLoss(losingPlayerId, reason) {
@@ -150,7 +152,7 @@ export default class LocalGameOrchestrator {
     }
 
     #recordHistory() {
-        if (this.isViewingHistory()) { this.history.splice(this.viewingHistoryIndex + 1); }
+        if (this.isViewingHistory()) this.history.splice(this.viewingHistoryIndex + 1);
         this.history.push(this.getGameState());
         this.viewingHistoryIndex = this.history.length - 1;
     }
