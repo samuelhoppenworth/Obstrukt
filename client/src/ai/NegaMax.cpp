@@ -72,7 +72,7 @@ std::unordered_map<uint64_t, TTEntry> transpositionTable;
 
 // Zobrist Hashing for state-caching
 namespace Zobrist {
-    const int MAX_BOARD_SIZE = 9;
+    const int MAX_BOARD_SIZE = 11;
     const int MAX_PLAYERS = 4;
     std::vector<std::vector<std::vector<uint64_t>>> pawnKeys;
     std::vector<std::vector<uint64_t>> h_wallKeys;
