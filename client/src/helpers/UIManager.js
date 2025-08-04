@@ -8,15 +8,24 @@ export default class UIManager {
     }
 
     setupGameUI(players, initialTimers, config) {
+        // --- MODIFIED HTML: Added a header with a toggle button ---
         this.sidePanel.innerHTML = `
-            <div class="player-info-list"></div>
-            <div id="action-container"></div>
-            <div class="history-controls">
-                <button id="hist-start">«</button> <button id="hist-prev">‹</button>
-                <button id="hist-next">›</button> <button id="hist-end">»</button>
+            <div class="panel-header">
+                <h2>Game State</h2>
+                <button id="panel-toggle-btn">Hide</button>
+            </div>
+            <div class="panel-content">
+                <div class="player-info-list"></div>
+                <div id="action-container"></div>
+                <div class="history-controls">
+                    <button id="hist-start">«</button> <button id="hist-prev">‹</button>
+                    <button id="hist-next">›</button> <button id="hist-end">»</button>
+                </div>
             </div>`;
+        
         const playerList = this.sidePanel.querySelector('.player-info-list');
-        console.log("players", players);
+        
+        // ... (the rest of your forEach loop for players remains the same)
         let playerName = '';        
         players.forEach(player => {            
             const playerEl = document.createElement('div');
@@ -46,6 +55,14 @@ export default class UIManager {
         
         this.showDefaultActions(config);
         this.addHistoryButtonListeners();
+
+        // --- ADD THIS LISTENER for the new button ---
+        const toggleButton = document.getElementById('panel-toggle-btn');
+        const panelContent = this.sidePanel.querySelector('.panel-content');
+        toggleButton.addEventListener('click', () => {
+            panelContent.classList.toggle('collapsed');
+            toggleButton.textContent = panelContent.classList.contains('collapsed') ? 'Show' : 'Hide';
+        });
     }
 
     showDefaultActions(config) {
