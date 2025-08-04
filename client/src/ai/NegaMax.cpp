@@ -18,7 +18,7 @@
 #include <emscripten/val.h>
 
 // --- CONFIGURATION ---
-const int DEFAULT_MAX_DEPTH = 6;
+const int DEFAULT_MAX_DEPTH = 4;
 const double PATH_SCORE_BASE = 2.0;
 const int MAX_EXPECTED_PATH = 16;
 
