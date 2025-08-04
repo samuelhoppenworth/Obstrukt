@@ -10,16 +10,10 @@ export default class Menu extends Phaser.Scene {
         this.renderer = new Renderer(this, this.renderConfig);
         
         const sidePanel = document.getElementById('side-panel');
+        // --- MODIFIED: The HTML is now condensed into one section ---
         sidePanel.innerHTML = `
             <div class="panel-section">
-                <h2>Game Mode</h2>
-                <div class="config-item">
-                    <label for="game-mode">Mode:</label>
-                    <select id="game-mode">
-                        <option value="local">Local Play</option>
-                        <option value="online">Online Multiplayer</option>
-                    </select>
-                </div>
+                <h2>Game Settings</h2>
                 <div class="config-item">
                     <label for="num-players">Players:</label>
                     <select id="num-players">
@@ -27,79 +21,61 @@ export default class Menu extends Phaser.Scene {
                         <option value="4">4</option>
                     </select>
                 </div>
-                <div id="local-options">
-                    <h2>Player Settings</h2>
-                    <div class="config-item">
-                        <label for="board-size">Board Size:</label>
-                        <select id="board-size">
-                            <!-- FIX: Added 5x5 Option -->
-                            <option value="5">5x5</option>
-                            <option value="7">7x7</option>
-                            <option value="9" selected>9x9</option>
-                            <option value="11">11x11</option>
-                        </select>
-                    </div>
-                    <div id="player-types-container"></div>
+                <div class="config-item">
+                    <label for="board-size">Board Size:</label>
+                    <select id="board-size">
+                        <option value="5">5x5</option>
+                        <option value="7">7x7</option>
+                        <option value="9" selected>9x9</option>
+                        <option value="11">11x11</option>
+                    </select>
+                </div>
+                <div id="player-types-container">
+                    <!-- Player type selectors are dynamically added here -->
                 </div>
             </div>
             <button id="start-game-btn">Start Game</button>
         `;
 
-        const gameModeSelect = document.getElementById('game-mode');
-        const localOptions = document.getElementById('local-options');
         const numPlayersSelect = document.getElementById('num-players');
         const startButton = document.getElementById('start-game-btn');
         const boardSizeSelect = document.getElementById('board-size');
 
+        // This function remains the same, but now there's only one UI state.
         const updateUI = () => {
-            const isLocal = gameModeSelect.value === 'local';
             const numPlayers = parseInt(numPlayersSelect.value, 10);
             const boardSize = parseInt(boardSizeSelect.value, 10);
             
-            localOptions.style.display = isLocal ? 'block' : 'none';
-            boardSizeSelect.parentElement.style.display = isLocal ? 'flex' : 'none';
-            startButton.textContent = isLocal ? 'Start Game' : 'Find Game';
-                        
-            if (isLocal) {
-                this.generatePlayerTypeSelectors(numPlayers);
-            }
+            this.generatePlayerTypeSelectors(numPlayers);
             this.updatePreview(numPlayers, boardSize);
         };
         
-        gameModeSelect.addEventListener('change', updateUI);
         numPlayersSelect.addEventListener('change', updateUI);
         boardSizeSelect.addEventListener('change', updateUI);
 
         startButton.addEventListener('click', () => {
-            const mode = gameModeSelect.value;
             const numPlayers = parseInt(numPlayersSelect.value, 10);
             const boardSize = parseInt(boardSizeSelect.value, 10);
 
-            if (mode === 'online') {
-                this.scene.start('Game', { 
-                    gameType: 'online',
-                    numPlayers: numPlayers
-                });
-            } else {
-                const playersForGame = numPlayers === 2
-                    ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
-                    : ALL_PLAYERS.slice(0, 4);
+            const playersForGame = numPlayers === 2
+                ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
+                : ALL_PLAYERS.slice(0, 4);
 
-                const playerTypes = {};
-                playersForGame.forEach(player => {
-                    const select = document.getElementById(`${player.id}-type`);
-                    playerTypes[player.id] = select.value;
-                });
-                
-                this.scene.start('Game', {
-                    gameType: 'local',
-                    numPlayers: numPlayers,
-                    playerTypes: playerTypes,
-                    boardSize: boardSize
-                });
-            }
+            const playerTypes = {};
+            playersForGame.forEach(player => {
+                const select = document.getElementById(`${player.id}-type`);
+                playerTypes[player.id] = select.value;
+            });
+            
+            this.scene.start('Game', {
+                gameType: 'local',
+                numPlayers: numPlayers,
+                playerTypes: playerTypes,
+                boardSize: boardSize
+            });
         });
-        updateUI();
+
+        updateUI(); // Initial call
     }
 
     generatePlayerTypeSelectors(numPlayers) {
@@ -109,6 +85,7 @@ export default class Menu extends Phaser.Scene {
 
         playersForGame.forEach((player, index) => {
             const item = document.createElement('div');
+            // This class is important for consistent styling
             item.className = 'config-item';
             item.innerHTML = `
                 <label for="${player.id}-type">Player ${index + 1}:</label>
@@ -123,7 +100,6 @@ export default class Menu extends Phaser.Scene {
 
     updatePreview(numPlayers, boardSize) {
         if (this.renderer) {
-            // New renderer necessary for changes to boardSize
             this.renderer.destroy();
         }
 
@@ -134,7 +110,6 @@ export default class Menu extends Phaser.Scene {
         
         let pawnPositions = {};
         playersForGame.forEach(player => {
-             // Call the startPos function with the new board size
              pawnPositions[player.id] = player.startPos(boardSize);
         });
 
