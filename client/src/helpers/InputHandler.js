@@ -1,12 +1,10 @@
 // src/helpers/InputHandler.js
 
 export default class InputHandler {
-    // --- FIX: Accept config in constructor ---
     constructor(scene, config) {
         this.scene = scene;
         this.lastHoveredWall = null;
         this.perspective = 'p1';
-        // --- FIX: Use boardSize from config ---
         this.boardSize = config.boardSize || 9;
     }
 
