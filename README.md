@@ -1,5 +1,7 @@
 # Obstrukt Online
 
+### Play locally here: [Obstrukt](https://obstrukt.vercel.app/)
+
 <p align="center">
     <img width="3198" height="1710" alt="image" src="https://github.com/user-attachments/assets/00514b35-75fe-4a92-9fa2-6dc91bca4efe" />
 </p>
