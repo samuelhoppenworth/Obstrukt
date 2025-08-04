@@ -1,3 +1,5 @@
+// compile with em++ client/src/ai/NegaMax.cpp --bind -o public/ai/ai.js -O3 -s WASM=1 -s MODULARIZE=1 -s EXPORT_ES6=1
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -7,232 +9,584 @@
 #include <set>
 #include <cmath>
 #include <functional>
+#include <random>
+#include <chrono>
+#include <unordered_map>
+
 #include <emscripten.h>
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
 // --- CONFIGURATION ---
-const int DEFAULT_MAX_DEPTH = 2; 
+const int DEFAULT_MAX_DEPTH = 6;
+const double PATH_SCORE_BASE = 2.0;
+const int MAX_EXPECTED_PATH = 16;
 
 // --- DATA STRUCTURES ---
-struct PawnPos { int row; int col; bool operator==(const PawnPos& o) const { return row == o.row && col == o.col; } bool operator<(const PawnPos& o) const { return row != o.row ? row < o.row : col < o.col; } };
-struct Wall { int row; int col; std::string orientation; bool operator==(const Wall& o) const { return row == o.row && col == o.col && orientation == o.orientation; } };
-struct Move { std::string type; PawnPos pos; Wall wall; };
-struct Player { std::string id; std::function<bool(int, int, int)> goalCondition; };
-struct GameState { int boardSize; std::map<std::string, PawnPos> pawnPositions; std::map<std::string, int> wallsLeft; std::vector<Wall> placedWalls; std::string playerTurn; std::vector<std::string> activePlayerIds; int playerTurnIndex; std::string status = "active"; std::string winner = ""; };
+struct PawnPos { 
+    int row; 
+    int col; 
+    bool operator==(const PawnPos& o) const { return row == o.row && col == o.col; } 
+    bool operator<(const PawnPos& o) const { return row != o.row ? row < o.row : col < o.col; } 
+};
 
-// --- FORWARD DECLARATIONS ---
-bool isWallBetween(const PawnPos& p1, const PawnPos& p2, const GameState& state);
-int getShortestPathLength(const PawnPos& startPos, const std::function<bool(int, int, int)>& goalCondition, const GameState& state);
+struct Wall { 
+    int row; 
+    int col; 
+    std::string orientation; 
+    bool operator==(const Wall& o) const { return row == o.row && col == o.col && orientation == o.orientation; } 
+};
 
-// --- CORE GAME LOGIC ---
-std::vector<PawnPos> calculateLegalPawnMoves(const GameState& state) {
-    std::vector<PawnPos> moves;
-    if (state.pawnPositions.find(state.playerTurn) == state.pawnPositions.end()) return moves;
-    const PawnPos& currentPawnPos = state.pawnPositions.at(state.playerTurn);
-    int dr[] = {-1, 1, 0, 0}; int dc[] = {0, 0, -1, 1};
-    std::set<PawnPos> allPawnLocations;
-    for(const auto& pair : state.pawnPositions) allPawnLocations.insert(pair.second);
+struct Move { 
+    std::string type; 
+    PawnPos pos; 
+    Wall wall; 
+};
 
-    for (int i = 0; i < 4; ++i) {
-        PawnPos nextPos = {currentPawnPos.row + dr[i], currentPawnPos.col + dc[i]};
-        if (nextPos.row < 0 || nextPos.row >= state.boardSize || nextPos.col < 0 || nextPos.col >= state.boardSize || isWallBetween(currentPawnPos, nextPos, state)) continue;
+struct Player { 
+    std::string id; 
+    std::function<bool(int, int, int)> goalCondition; 
+};
+
+struct GameState { 
+    int boardSize; 
+    std::map<std::string, PawnPos> pawnPositions; 
+    std::map<std::string, int> wallsLeft; 
+    std::vector<Wall> placedWalls; 
+    std::string playerTurn; 
+    std::vector<std::string> activePlayerIds; 
+    int playerTurnIndex; 
+    std::string status = "active"; 
+    std::string winner = ""; 
+    uint64_t zobristHash = 0; // Zobrist hash for the current state
+};
+
+// --- TRANSPOSITION TABLE (TT) IMPLEMENTATION ---
+enum TTFlag { EXACT, LOWERBOUND, UPPERBOUND };
+struct TTEntry {
+    int score;
+    int depth;
+    TTFlag flag;
+};
+std::unordered_map<uint64_t, TTEntry> transpositionTable;
+
+// Zobrist Hashing for state-caching
+namespace Zobrist {
+    const int MAX_BOARD_SIZE = 9;
+    const int MAX_PLAYERS = 4;
+    std::vector<std::vector<std::vector<uint64_t>>> pawnKeys;
+    std::vector<std::vector<uint64_t>> h_wallKeys;
+    std::vector<std::vector<uint64_t>> v_wallKeys;
+    std::vector<uint64_t> turnKeys;
+
+    void initialize() {
+        std::mt19937_64 gen(0xBADF00D); // Fixed seed for determinism
         
-        if (allPawnLocations.find(nextPos) == allPawnLocations.end()) {
-            moves.push_back(nextPos);
-        } else {
-            PawnPos jumpPos = {nextPos.row + dr[i], nextPos.col + dc[i]};
-            bool straightJumpIsOnBoard = jumpPos.row >= 0 && jumpPos.row < state.boardSize && jumpPos.col >= 0 && jumpPos.col < state.boardSize;
-            if (straightJumpIsOnBoard && !isWallBetween(nextPos, jumpPos, state) && allPawnLocations.find(jumpPos) == allPawnLocations.end()) {
-                moves.push_back(jumpPos);
-            } else {
-                if (dr[i] != 0) { // Vertical move -> check horizontal sides
-                    PawnPos s1 = {nextPos.row, nextPos.col - 1}, s2 = {nextPos.row, nextPos.col + 1};
-                    if (s1.col >= 0 && !isWallBetween(nextPos, s1, state) && allPawnLocations.find(s1) == allPawnLocations.end()) moves.push_back(s1);
-                    if (s2.col < state.boardSize && !isWallBetween(nextPos, s2, state) && allPawnLocations.find(s2) == allPawnLocations.end()) moves.push_back(s2);
-                } else { // Horizontal move -> check vertical sides
-                    PawnPos s1 = {nextPos.row - 1, nextPos.col}, s2 = {nextPos.row + 1, nextPos.col};
-                    if (s1.row >= 0 && !isWallBetween(nextPos, s1, state) && allPawnLocations.find(s1) == allPawnLocations.end()) moves.push_back(s1);
-                    if (s2.row < state.boardSize && !isWallBetween(nextPos, s2, state) && allPawnLocations.find(s2) == allPawnLocations.end()) moves.push_back(s2);
+        pawnKeys.resize(MAX_PLAYERS, std::vector<std::vector<uint64_t>>(MAX_BOARD_SIZE, std::vector<uint64_t>(MAX_BOARD_SIZE)));
+        for (int p = 0; p < MAX_PLAYERS; ++p) {
+            for (int r = 0; r < MAX_BOARD_SIZE; ++r) {
+                for (int c = 0; c < MAX_BOARD_SIZE; ++c) {
+                    pawnKeys[p][r][c] = gen();
                 }
             }
         }
-    }
-    return moves;
-}
 
-bool isWallPlacementLegal(const Wall& wall, const GameState& state, const std::map<std::string, Player>& players) {
-    if (state.wallsLeft.find(state.playerTurn) == state.wallsLeft.end() || state.wallsLeft.at(state.playerTurn) <= 0) return false;
-    if (wall.row < 0 || wall.row >= state.boardSize - 1 || wall.col < 0 || wall.col >= state.boardSize - 1) return false;
-    for (const auto& placed : state.placedWalls) {
-        if (placed.row == wall.row && placed.col == wall.col) return false;
-        if (wall.orientation == "horizontal" && placed.orientation == "horizontal" && placed.row == wall.row && abs(placed.col - wall.col) == 1) return false;
-        if (wall.orientation == "vertical" && placed.orientation == "vertical" && placed.col == wall.col && abs(placed.row - wall.row) == 1) return false;
-    }
-    GameState tempState = state; tempState.placedWalls.push_back(wall);
-    for (const auto& p_id : state.activePlayerIds) {
-        if (players.count(p_id) && tempState.pawnPositions.count(p_id)) {
-            if (getShortestPathLength(tempState.pawnPositions.at(p_id), players.at(p_id).goalCondition, tempState) == -1) return false;
-        }
-    }
-    return true;
-}
-
-GameState applyMove(GameState state, const Move& move, const std::map<std::string, Player>& players) {
-    if (move.type == "pawn") state.pawnPositions[state.playerTurn] = move.pos;
-    else if (move.type == "wall") { state.placedWalls.push_back(move.wall); state.wallsLeft[state.playerTurn]--; }
-
-    if (players.count(state.playerTurn)) {
-        const PawnPos& pPos = state.pawnPositions.at(state.playerTurn);
-        if (players.at(state.playerTurn).goalCondition(pPos.row, pPos.col, state.boardSize)) {
-            state.status = "ended"; state.winner = state.playerTurn; return state;
-        }
-    }
-    if (!state.activePlayerIds.empty()) {
-        state.playerTurnIndex = (state.playerTurnIndex + 1) % state.activePlayerIds.size();
-        state.playerTurn = state.activePlayerIds[state.playerTurnIndex];
-    }
-    return state;
-}
-
-std::vector<Move> generateAllMoves(const GameState& state, const std::map<std::string, Player>& players) {
-    std::vector<Move> allMoves;
-    for (const auto& pos : calculateLegalPawnMoves(state)) allMoves.push_back({"pawn", pos});
-    if (state.wallsLeft.count(state.playerTurn) && state.wallsLeft.at(state.playerTurn) > 0) {
-        for (int r = 0; r < state.boardSize - 1; ++r) {
-            for (int c = 0; c < state.boardSize - 1; ++c) {
-                if (isWallPlacementLegal({r, c, "horizontal"}, state, players)) allMoves.push_back({"wall", {}, {r, c, "horizontal"}});
-                if (isWallPlacementLegal({r, c, "vertical"}, state, players)) allMoves.push_back({"wall", {}, {r, c, "vertical"}});
+        h_wallKeys.resize(MAX_BOARD_SIZE - 1, std::vector<uint64_t>(MAX_BOARD_SIZE - 1));
+        v_wallKeys.resize(MAX_BOARD_SIZE - 1, std::vector<uint64_t>(MAX_BOARD_SIZE - 1));
+        for (int r = 0; r < MAX_BOARD_SIZE - 1; ++r) {
+            for (int c = 0; c < MAX_BOARD_SIZE - 1; ++c) {
+                h_wallKeys[r][c] = gen();
+                v_wallKeys[r][c] = gen();
             }
         }
-    }
-    return allMoves;
-}
-
-// =========================================================================================
-// --- 4-PLAYER FIX: The evaluation function now considers ALL opponents ---
-// =========================================================================================
-int evaluate(const GameState& state, const std::map<std::string, Player>& players) {
-    if (state.status == "ended") return (state.winner == state.playerTurn) ? 10000 : -10000;
-    
-    std::string myId = state.playerTurn;
-    if (!players.count(myId)) return 0; // Should not happen
-
-    int myPath = getShortestPathLength(state.pawnPositions.at(myId), players.at(myId).goalCondition, state);
-    if (myPath == -1) return -9999; // I am trapped, this is very bad.
-
-    int minOpponentPath = 999;
-    int totalWallsLeft = 0;
-    
-    // Find the opponent who is closest to winning. That's the biggest threat.
-    for (const auto& p_id : state.activePlayerIds) {
-        if (p_id == myId) continue; // Skip myself
-        if (players.count(p_id)) {
-            int oppPath = getShortestPathLength(state.pawnPositions.at(p_id), players.at(p_id).goalCondition, state);
-            if (oppPath != -1 && oppPath < minOpponentPath) {
-                minOpponentPath = oppPath;
-            }
+        
+        turnKeys.resize(MAX_PLAYERS);
+        for(int p = 0; p < MAX_PLAYERS; ++p) {
+            turnKeys[p] = gen();
         }
     }
 
-    // If all opponents are trapped, that's a winning position.
-    if (minOpponentPath == 999) return 9999;
-    
-    // Main Heuristic: My path vs the most threatening opponent's path.
-    // Also consider the advantage of having more walls than opponents.
-    int pathDifference = minOpponentPath - myPath;
-    int wallAdvantage = state.wallsLeft.at(myId) - (state.activePlayerIds.size() - 1 > 0 ? 5 / (state.activePlayerIds.size() - 1) : 0);
-
-    return (pathDifference * 10) + (wallAdvantage * 2);
-}
-
-int negamax(GameState state, int depth, int alpha, int beta, int color, const std::map<std::string, Player>& players) {
-    if (depth == 0 || state.status == "ended") return color * evaluate(state, players);
-    int maxVal = -10001;
-    std::vector<Move> moves = generateAllMoves(state, players);
-    std::sort(moves.begin(), moves.end(), [](const Move& a, const Move& b){ return a.type == "pawn" && b.type == "wall"; });
-    if (moves.empty()) return color * evaluate(state, players);
-    for (const auto& move : moves) {
-        GameState nextState = applyMove(state, move, players);
-        int val = -negamax(nextState, depth - 1, -beta, -alpha, -color, players);
-        maxVal = std::max(maxVal, val); alpha = std::max(alpha, val);
-        if (alpha >= beta) break;
+    uint64_t computeHash(const GameState& state) {
+        uint64_t h = 0;
+        for (const auto& pair : state.pawnPositions) {
+            int playerIndex = std::distance(state.activePlayerIds.begin(), 
+                std::find(state.activePlayerIds.begin(), state.activePlayerIds.end(), pair.first));
+            h ^= pawnKeys[playerIndex][pair.second.row][pair.second.col];
+        }
+        for (const auto& wall : state.placedWalls) {
+            if (wall.orientation == "horizontal") {
+                h ^= h_wallKeys[wall.row][wall.col];
+            } else {
+                h ^= v_wallKeys[wall.row][wall.col];
+            }
+        }
+        h ^= turnKeys[state.playerTurnIndex];
+        return h;
     }
-    return maxVal;
 }
 
-bool isWallBetween(const PawnPos& p1, const PawnPos& p2, const GameState& state) {
-    for (const auto& wall : state.placedWalls) {
-        if (wall.orientation == "horizontal") {
-            if (p1.col == p2.col && (wall.col == p1.col || wall.col == p1.col - 1)) {
-                if (p1.row + 1 == p2.row && wall.row == p1.row) return true;
-                if (p1.row - 1 == p2.row && wall.row == p2.row) return true;
-            }
-        } else {
-            if (p1.row == p2.row && (wall.row == p1.row || wall.row == p1.row - 1)) {
-                if (p1.col + 1 == p2.col && wall.col == p1.col) return true;
-                if (p1.col - 1 == p2.col && wall.col == p2.col) return true;
-            }
+// --- FORWARD DECLARATIONS ---
+bool isWallBetween(const std::vector<Wall>& placedWalls, int r1, int c1, int r2, int c2);
+bool pathExistsFor(const PawnPos& startPos, const std::function<bool(int, int, int)>& goalCondition, const std::vector<Wall>& placedWalls, int boardSize);
+int getShortestPathLength(const PawnPos& startPos, const std::function<bool(int, int, int)>& goalCondition, const std::vector<Wall>& placedWalls, int boardSize);
+
+// --- CORE GAME LOGIC ---
+
+bool isWallBetween(const std::vector<Wall>& placedWalls, int r1, int c1, int r2, int c2) {
+    if (c1 == c2) { // Vertical movement
+        int wallRow = std::min(r1, r2);
+        for (const auto& wall : placedWalls) {
+            if (wall.orientation == "horizontal" && wall.row == wallRow && (wall.col == c1 || wall.col == c1 - 1)) return true;
+        }
+    } else if (r1 == r2) { // Horizontal movement
+        int wallCol = std::min(c1, c2);
+        for (const auto& wall : placedWalls) {
+            if (wall.orientation == "vertical" && wall.col == wallCol && (wall.row == r1 || wall.row == r1 - 1)) return true;
         }
     }
     return false;
 }
 
-int getShortestPathLength(const PawnPos& startPos, const std::function<bool(int, int, int)>& goalCondition, const GameState& state) {
-    if (goalCondition(startPos.row, startPos.col, state.boardSize)) return 0;
-    std::queue<std::pair<PawnPos, int>> q; q.push({startPos, 0});
-    std::set<PawnPos> visited; visited.insert(startPos);
-    int dr[] = {-1, 1, 0, 0}, dc[] = {0, 0, -1, 1};
-    while (!q.empty()) {
-        PawnPos cPos = q.front().first; int dist = q.front().second; q.pop();
-        if (goalCondition(cPos.row, cPos.col, state.boardSize)) return dist;
-        for (int i = 0; i < 4; i++) {
-            PawnPos nPos = {cPos.row + dr[i], cPos.col + dc[i]};
-            if (nPos.row >= 0 && nPos.row < state.boardSize && nPos.col >= 0 && nPos.col < state.boardSize &&
-                !isWallBetween(cPos, nPos, state) && visited.find(nPos) == visited.end()) {
-                visited.insert(nPos); q.push({nPos, dist + 1});
+bool pathExistsFor(const PawnPos& startPos, const std::function<bool(int, int, int)>& goalCondition, const std::vector<Wall>& placedWalls, int boardSize) {
+    if (startPos.row == -1) return true;
+    return getShortestPathLength(startPos, goalCondition, placedWalls, boardSize) != -1;
+}
+
+std::vector<PawnPos> calculateLegalPawnMoves(const std::map<std::string, PawnPos>& pawnPositions, const std::vector<Wall>& placedWalls, const std::vector<Player>& players, const std::vector<std::string>& activePlayerIds, int playerTurnIndex, int boardSize) {
+    std::vector<PawnPos> availablePawnMoves;
+    if (playerTurnIndex >= activePlayerIds.size()) return availablePawnMoves;
+    std::string currentPlayerId = activePlayerIds[playerTurnIndex];
+    if (pawnPositions.find(currentPlayerId) == pawnPositions.end()) return availablePawnMoves;
+
+    const PawnPos& currentPos = pawnPositions.at(currentPlayerId);
+    int row = currentPos.row;
+    int col = currentPos.col;
+    
+    std::vector<PawnPos> opponentPositions;
+    for (const auto& player : players) {
+        if (player.id != currentPlayerId && std::find(activePlayerIds.begin(), activePlayerIds.end(), player.id) != activePlayerIds.end()) {
+            if (pawnPositions.find(player.id) != pawnPositions.end()) {
+                opponentPositions.push_back(pawnPositions.at(player.id));
             }
         }
     }
-    return -1;
+    
+    std::vector<PawnPos> potentialMoves = {{row - 1, col}, {row + 1, col}, {row, col - 1}, {row, col + 1}};
+    for (const auto& move : potentialMoves) {
+        if (move.row < 0 || move.row >= boardSize || move.col < 0 || move.col >= boardSize) continue;
+        
+        const PawnPos* opponentInCell = nullptr;
+        for (const auto& oppPos : opponentPositions) {
+            if (oppPos.row == move.row && oppPos.col == move.col) {
+                opponentInCell = &oppPos;
+                break;
+            }
+        }
+        
+        if (isWallBetween(placedWalls, row, col, move.row, move.col)) continue;
+        
+        if (opponentInCell) {
+            int jumpRow = opponentInCell->row + (opponentInCell->row - row);
+            int jumpCol = opponentInCell->col + (opponentInCell->col - col);
+            bool wallBehindOpponent = isWallBetween(placedWalls, opponentInCell->row, opponentInCell->col, jumpRow, jumpCol);
+            
+            if (!wallBehindOpponent && jumpRow >= 0 && jumpRow < boardSize && jumpCol >= 0 && jumpCol < boardSize) {
+                availablePawnMoves.push_back({jumpRow, jumpCol});
+            } else {
+                if (opponentInCell->row == row) { // Horizontal opponent
+                    if (!isWallBetween(placedWalls, opponentInCell->row, opponentInCell->col, opponentInCell->row - 1, opponentInCell->col)) availablePawnMoves.push_back({opponentInCell->row - 1, opponentInCell->col});
+                    if (!isWallBetween(placedWalls, opponentInCell->row, opponentInCell->col, opponentInCell->row + 1, opponentInCell->col)) availablePawnMoves.push_back({opponentInCell->row + 1, opponentInCell->col});
+                } else { // Vertical opponent
+                    if (!isWallBetween(placedWalls, opponentInCell->row, opponentInCell->col, opponentInCell->row, opponentInCell->col - 1)) availablePawnMoves.push_back({opponentInCell->row, opponentInCell->col - 1});
+                    if (!isWallBetween(placedWalls, opponentInCell->row, opponentInCell->col, opponentInCell->row, opponentInCell->col + 1)) availablePawnMoves.push_back({opponentInCell->row, opponentInCell->col + 1});
+                }
+            }
+        } else {
+            availablePawnMoves.push_back({move.row, move.col});
+        }
+    }
+    
+    availablePawnMoves.erase(std::remove_if(availablePawnMoves.begin(), availablePawnMoves.end(),
+        [&](const PawnPos& m) {
+            for (const auto& oppPos : opponentPositions) if (oppPos.row == m.row && oppPos.col == m.col) return true;
+            return m.row < 0 || m.row >= boardSize || m.col < 0 || m.col >= boardSize;
+        }), availablePawnMoves.end());
+    
+    return availablePawnMoves;
 }
+
+bool isWallPlacementLegal(const Wall& wallData, const GameState& gameState, const std::vector<Player>& players) {
+    if (gameState.wallsLeft.at(gameState.playerTurn) <= 0) return false;
+    if (wallData.row < 0 || wallData.row > gameState.boardSize - 2 || wallData.col < 0 || wallData.col > gameState.boardSize - 2) return false;
+    
+    for (const auto& wall : gameState.placedWalls) {
+        if (wall.row == wallData.row && wall.col == wallData.col) return false;
+        if (wallData.orientation == "horizontal" && wall.orientation == "horizontal" && wall.row == wallData.row && std::abs(wall.col - wallData.col) < 2) return false;
+        if (wallData.orientation == "vertical" && wall.orientation == "vertical" && wall.col == wallData.col && std::abs(wall.row - wallData.row) < 2) return false;
+    }
+    
+    std::vector<Wall> tempPlacedWalls = gameState.placedWalls;
+    tempPlacedWalls.push_back(wallData);
+    
+    for (const std::string& playerId : gameState.activePlayerIds) {
+        const Player* player = nullptr;
+        for (const auto& p : players) if (p.id == playerId) player = &p;
+        if (player && gameState.pawnPositions.count(player->id)) {
+            if (!pathExistsFor(gameState.pawnPositions.at(player->id), player->goalCondition, tempPlacedWalls, gameState.boardSize)) return false;
+        }
+    }
+    
+    return true;
+}
+
+GameState switchTurn(GameState gameState) {
+    // Update hash for turn switch
+    gameState.zobristHash ^= Zobrist::turnKeys[gameState.playerTurnIndex];
+    gameState.playerTurnIndex = (gameState.playerTurnIndex + 1) % gameState.activePlayerIds.size();
+    gameState.playerTurn = gameState.activePlayerIds[gameState.playerTurnIndex];
+    gameState.zobristHash ^= Zobrist::turnKeys[gameState.playerTurnIndex];
+    return gameState;
+}
+
+GameState applyPawnMove(GameState gameState, const PawnPos& moveData, const std::vector<Player>& players) {
+    std::string currentPlayerId = gameState.playerTurn;
+    int playerIndex = gameState.playerTurnIndex;
+    
+    // Update hash for pawn move
+    PawnPos oldPos = gameState.pawnPositions[currentPlayerId];
+    gameState.zobristHash ^= Zobrist::pawnKeys[playerIndex][oldPos.row][oldPos.col];
+    gameState.zobristHash ^= Zobrist::pawnKeys[playerIndex][moveData.row][moveData.col];
+
+    gameState.pawnPositions[currentPlayerId] = moveData;
+    
+    const Player* currentPlayer = &players[playerIndex];
+    if (currentPlayer->goalCondition(moveData.row, moveData.col, gameState.boardSize)) {
+        gameState.status = "ended";
+        gameState.winner = currentPlayerId;
+        gameState.playerTurn = "";
+    } else {
+        gameState = switchTurn(gameState);
+    }
+    return gameState;
+}
+
+GameState applyWallPlacement(GameState gameState, const Wall& wallData) {
+    // Update hash for wall placement
+    if (wallData.orientation == "horizontal") {
+        gameState.zobristHash ^= Zobrist::h_wallKeys[wallData.row][wallData.col];
+    } else {
+        gameState.zobristHash ^= Zobrist::v_wallKeys[wallData.row][wallData.col];
+    }
+
+    gameState.placedWalls.push_back(wallData);
+    gameState.wallsLeft[gameState.playerTurn]--;
+    gameState = switchTurn(gameState);
+    return gameState;
+}
+
+GameState applyMove(GameState gameState, const Move& move, const std::vector<Player>& players) {
+    if (move.type == "cell") {
+        return applyPawnMove(gameState, move.pos, players);
+    } else if (move.type == "wall") {
+        return applyWallPlacement(gameState, move.wall);
+    }
+    return gameState;
+}
+
+// --- AI LOGIC ---
+
+int getShortestPathLength(const PawnPos& startPos, const std::function<bool(int, int, int)>& goalCondition, const std::vector<Wall>& placedWalls, int boardSize) {
+    if (goalCondition(startPos.row, startPos.col, boardSize)) return 0;
+    
+    std::queue<std::pair<PawnPos, int>> queue;
+    std::set<std::string> visited;
+    
+    queue.push({startPos, 0});
+    visited.insert(std::to_string(startPos.row) + "," + std::to_string(startPos.col));
+    
+    while (!queue.empty()) {
+        PawnPos currentPos = queue.front().first;
+        int distance = queue.front().second;
+        queue.pop();
+        
+        if (goalCondition(currentPos.row, currentPos.col, boardSize)) return distance;
+        
+        std::vector<PawnPos> neighbors = {{currentPos.row - 1, currentPos.col}, {currentPos.row + 1, currentPos.col}, {currentPos.row, currentPos.col - 1}, {currentPos.row, currentPos.col + 1}};
+        for (const auto& neighbor : neighbors) {
+            std::string key = std::to_string(neighbor.row) + "," + std::to_string(neighbor.col);
+            if (neighbor.row >= 0 && neighbor.row < boardSize && neighbor.col >= 0 && neighbor.col < boardSize && !isWallBetween(placedWalls, currentPos.row, currentPos.col, neighbor.row, neighbor.col) && visited.find(key) == visited.end()) {
+                visited.insert(key);
+                queue.push({neighbor, distance + 1});
+            }
+        }
+    }
+    return -1; // No path exists
+}
+
+// ** FINAL STRATEGIC EVALUATION FUNCTION **
+int evaluate(const GameState& state, const std::vector<Player>& players) {
+    if (state.status == "ended") {
+        return (state.winner == state.playerTurn) ? 1000000 : -1000000;
+    }
+
+    std::string myId = state.playerTurn;
+    const Player* myPlayer = nullptr;
+    for(const auto& p : players) {
+        if (p.id == myId) myPlayer = &p;
+    }
+
+    if (!myPlayer || !state.pawnPositions.count(myId)) return 0; // Not enough info
+
+    int myPath = getShortestPathLength(state.pawnPositions.at(myId), myPlayer->goalCondition, state.placedWalls, state.boardSize);
+    if (myPath == -1) return -999999; // Catastrophic failure if my own path is blocked.
+
+    // --- Heuristic: Shortest Path Difference (vs. most threatening opponent) ---
+    int mostThreateningOpponentPath = MAX_EXPECTED_PATH + 1;
+    for (const std::string& opponentId : state.activePlayerIds) {
+        if (opponentId == myId) continue;
+
+        const Player* opponentPlayer = nullptr;
+        for(const auto& p : players) { if (p.id == opponentId) opponentPlayer = &p; }
+
+        if (opponentPlayer && state.pawnPositions.count(opponentId)) {
+            int opponentPath = getShortestPathLength(state.pawnPositions.at(opponentId), opponentPlayer->goalCondition, state.placedWalls, state.boardSize);
+            if (opponentPath != -1) {
+                mostThreateningOpponentPath = std::min(mostThreateningOpponentPath, opponentPath);
+            }
+        }
+    }
+    
+    // Exponential scaling makes path differences more critical near the goal line.
+    double myProgressScore = pow(PATH_SCORE_BASE, MAX_EXPECTED_PATH - myPath);
+    double opponentProgressScore = pow(PATH_SCORE_BASE, MAX_EXPECTED_PATH - mostThreateningOpponentPath);
+    int pathScore = static_cast<int>(myProgressScore - opponentProgressScore);
+
+    // --- Heuristic: Wall Conservation & Wall Difference ---
+    // This logic makes walls more valuable in the early/mid game, discouraging the AI from wasting them.
+    // It also implicitly rewards having more walls than opponents (wall difference).
+    int totalWallsOnBoard = (10 * state.activePlayerIds.size());
+    for(const auto& pair : state.wallsLeft) { totalWallsOnBoard -= pair.second; }
+    
+    // The multiplier is high when few walls are placed, and low when many are.
+    int wallScoreMultiplier = 5 + (40 - totalWallsOnBoard) / 4; // Assumes 40 max walls for 4P
+    int wallAdvantageScore = state.wallsLeft.at(myId) * wallScoreMultiplier;
+
+    return pathScore + wallAdvantageScore;
+}
+
+
+// ** FINAL TACTICAL MOVE GENERATION & ORDERING FUNCTION **
+std::vector<Move> generateAndOrderMoves(const GameState& state, const std::vector<Player>& players) {
+    std::vector<std::pair<Move, int>> scoredMoves;
+    std::string myId = state.playerTurn;
+
+    const Player* myPlayer = nullptr;
+    for(const auto& p : players) { if(p.id == myId) myPlayer = &p; }
+    if (!myPlayer) return {}; // Cannot move if I am not a player
+
+    // --- Identify the single most threatening opponent ---
+    const Player* opponentPlayer = nullptr;
+    std::string opponentId = "";
+    int initialOpponentPath = MAX_EXPECTED_PATH + 1;
+
+    for (const auto& id : state.activePlayerIds) {
+        if (id == myId) continue;
+        const Player* tempOpponent = nullptr;
+        for(const auto& p : players) { if(p.id == id) tempOpponent = &p; }
+
+        if(tempOpponent && state.pawnPositions.count(id)) {
+            int path = getShortestPathLength(state.pawnPositions.at(id), tempOpponent->goalCondition, state.placedWalls, state.boardSize);
+            if (path != -1 && path < initialOpponentPath) {
+                initialOpponentPath = path;
+                opponentId = id;
+                opponentPlayer = tempOpponent;
+            }
+        }
+    }
+
+    int initialMyPath = getShortestPathLength(state.pawnPositions.at(myId), myPlayer->goalCondition, state.placedWalls, state.boardSize);
+
+    // --- 1. Score and Generate Pawn Moves (Heuristic: Forward Progress) ---
+    // Pawn moves are the default good move. Give them a high base score.
+    std::vector<PawnPos> pawnMoves = calculateLegalPawnMoves(state.pawnPositions, state.placedWalls, players, state.activePlayerIds, state.playerTurnIndex, state.boardSize);
+    for (const auto& pos : pawnMoves) {
+        int newMyPath = getShortestPathLength(pos, myPlayer->goalCondition, state.placedWalls, state.boardSize);
+        if (newMyPath == -1) continue; // Don't consider moves that trap myself.
+
+        // Score is based on how much closer to the goal we get.
+        int score = (initialMyPath - newMyPath); 
+        scoredMoves.push_back({{"cell", pos, {}}, 10000 + score * 100});
+    }
+
+    // --- 2. Score and Generate Wall Moves (Heuristics: Blocking & Self-Preservation) ---
+    if (state.wallsLeft.count(myId) && state.wallsLeft.at(myId) > 0 && opponentPlayer) {
+        for (int r = 0; r <= state.boardSize - 2; ++r) {
+            for (int c = 0; c <= state.boardSize - 2; ++c) {
+                Wall walls[] = {{r, c, "horizontal"}, {r, c, "vertical"}};
+                for (const auto& wall : walls) {
+                    if (isWallPlacementLegal(wall, state, players)) {
+                        std::vector<Wall> tempWalls = state.placedWalls;
+                        tempWalls.push_back(wall);
+
+                        // CRITICAL: Check if the wall hurts me. If so, it's a terrible move.
+                        int newMyPathAfterWall = getShortestPathLength(state.pawnPositions.at(myId), myPlayer->goalCondition, tempWalls, state.boardSize);
+                        if (newMyPathAfterWall == -1 || newMyPathAfterWall > initialMyPath) {
+                            continue; // Heavily penalize or ignore self-blocking walls.
+                        }
+                        
+                        // Calculate how much this wall hinders the most threatening opponent.
+                        int newOpponentPath = getShortestPathLength(state.pawnPositions.at(opponentId), opponentPlayer->goalCondition, tempWalls, state.boardSize);
+                        
+                        if (newOpponentPath != -1) {
+                            int opponentPathIncrease = newOpponentPath - initialOpponentPath;
+
+                            if (opponentPathIncrease > 0) {
+                                // --- Heuristic: Edge Case - Emergency Block ---
+                                // If the opponent is about to win, blocking them is the HIGHEST priority.
+                                if (initialOpponentPath <= 2) {
+                                     scoredMoves.push_back({{"wall", {}, wall}, 50000 + opponentPathIncrease * 1000});
+                                } else {
+                                // Otherwise, score it normally.
+                                     scoredMoves.push_back({{"wall", {}, wall}, opponentPathIncrease * 200});
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Sort moves: Best moves (highest score) first
+    std::sort(scoredMoves.begin(), scoredMoves.end(), [](const auto& a, const auto& b) {
+        return a.second > b.second;
+    });
+
+    // Extract sorted moves
+    std::vector<Move> sortedMoves;
+    for(const auto& scoredMove : scoredMoves) {
+        sortedMoves.push_back(scoredMove.first);
+    }
+    
+    return sortedMoves;
+}
+
+// ** NEGAMAX WITH ALPHA-BETA, TRANSPOSITION TABLES, AND MOVE ORDERING **
+// ** NEGAMAX WITH ALPHA-BETA, TT, MOVE ORDERING, AND DEPTH-ADJUSTED SCORING **
+int negamax(GameState state, int depth, int alpha, int beta, int color, const std::vector<Player>& players, int ply) { // 'ply' is the search depth
+    int alphaOrig = alpha;
+
+    // 1. Transposition Table Lookup
+    auto it = transpositionTable.find(state.zobristHash);
+    if (it != transpositionTable.end() && it->second.depth >= depth) {
+        TTEntry entry = it->second;
+        // Adjust stored score for ply difference, crucial for comparing wins at different depths
+        int score = entry.score;
+        if (score > 900000) score -= ply;
+        if (score < -900000) score += ply;
+
+        if (entry.flag == EXACT) return score;
+        else if (entry.flag == LOWERBOUND) alpha = std::max(alpha, score);
+        else if (entry.flag == UPPERBOUND) beta = std::min(beta, score);
+        if (alpha >= beta) return score;
+    }
+
+    // 2. Base Cases
+    if (state.status == "ended") {
+        // A win is incredibly good, but a faster win is better.
+        // Subtract the ply count so that wins found at shallower depths have a higher score.
+        // The player whose turn it would be has lost. This is a win for the player who just moved.
+        return 1000000 - ply;
+    }
+
+    if (depth == 0) {
+        return color * evaluate(state, players);
+    }
+    
+    // 3. Generate and Order Moves
+    std::vector<Move> moves = generateAndOrderMoves(state, players);
+    if (moves.empty()) {
+        return color * evaluate(state, players);
+    }
+
+    // 4. Recurse through moves
+    int maxVal = -1000001; // Negative infinity
+    for (const auto& move : moves) {
+        GameState nextState = applyMove(state, move, players);
+        // Pass ply + 1 to the recursive call
+        int val = -negamax(nextState, depth - 1, -beta, -alpha, -color, players, ply + 1); 
+        
+        maxVal = std::max(maxVal, val);
+        alpha = std::max(alpha, val);
+        
+        if (alpha >= beta) {
+            break; // Pruning
+        }
+    }
+
+    // 5. Transposition Table Store
+    TTEntry new_entry;
+    // Store the score BEFORE ply adjustment, so it's consistent across different search paths
+    new_entry.score = maxVal; 
+    new_entry.depth = depth;
+    if (maxVal <= alphaOrig) new_entry.flag = UPPERBOUND;
+    else if (maxVal >= beta) new_entry.flag = LOWERBOUND;
+    else new_entry.flag = EXACT;
+    transpositionTable[state.zobristHash] = new_entry;
+    
+    return maxVal;
+}
+
+// --- EMSCRIPTEN BINDINGS (Unchanged) ---
 
 GameState jsToCppState(const emscripten::val& jsState) {
     GameState state;
-    if (jsState.hasOwnProperty("boardSize")) state.boardSize = jsState["boardSize"].as<int>();
-    if (jsState.hasOwnProperty("playerTurn")) state.playerTurn = jsState["playerTurn"].as<std::string>();
-    if (jsState.hasOwnProperty("playerTurnIndex")) state.playerTurnIndex = jsState["playerTurnIndex"].as<int>();
-    if (jsState.hasOwnProperty("status")) state.status = jsState["status"].as<std::string>();
-    if (jsState.hasOwnProperty("pawnPositions")) {
-        emscripten::val jsPawnPositions = jsState["pawnPositions"];
-        std::vector<std::string> keys = emscripten::vecFromJSArray<std::string>(emscripten::val::global("Object").call<emscripten::val>("keys", jsPawnPositions));
-        for (const auto& key : keys) state.pawnPositions[key] = {jsPawnPositions[key]["row"].as<int>(), jsPawnPositions[key]["col"].as<int>()};
+    state.boardSize = jsState["boardSize"].as<int>();
+    state.playerTurn = jsState["playerTurn"].as<std::string>();
+    state.playerTurnIndex = jsState["playerTurnIndex"].as<int>();
+    state.status = jsState["status"].as<std::string>();
+    state.activePlayerIds = emscripten::vecFromJSArray<std::string>(jsState["activePlayerIds"]);
+
+    emscripten::val jsPawnPositions = jsState["pawnPositions"];
+    std::vector<std::string> pawnKeys = emscripten::vecFromJSArray<std::string>(emscripten::val::global("Object").call<emscripten::val>("keys", jsPawnPositions));
+    for (const auto& key : pawnKeys) {
+        state.pawnPositions[key] = {jsPawnPositions[key]["row"].as<int>(), jsPawnPositions[key]["col"].as<int>()};
     }
-    if (jsState.hasOwnProperty("wallsLeft")) {
-        emscripten::val jsWallsLeft = jsState["wallsLeft"];
-        std::vector<std::string> keys = emscripten::vecFromJSArray<std::string>(emscripten::val::global("Object").call<emscripten::val>("keys", jsWallsLeft));
-        for (const auto& key : keys) state.wallsLeft[key] = jsWallsLeft[key].as<int>();
+    
+    emscripten::val jsWallsLeft = jsState["wallsLeft"];
+    std::vector<std::string> wallKeys = emscripten::vecFromJSArray<std::string>(emscripten::val::global("Object").call<emscripten::val>("keys", jsWallsLeft));
+    for (const auto& key : wallKeys) {
+        state.wallsLeft[key] = jsWallsLeft[key].as<int>();
     }
+    
     if (jsState.hasOwnProperty("placedWalls") && !jsState["placedWalls"].isUndefined()) {
         emscripten::val jsPlacedWalls = jsState["placedWalls"];
         for (int i = 0; i < jsPlacedWalls["length"].as<int>(); ++i) {
             state.placedWalls.push_back({jsPlacedWalls[i]["row"].as<int>(), jsPlacedWalls[i]["col"].as<int>(), jsPlacedWalls[i]["orientation"].as<std::string>()});
         }
     }
-    if (jsState.hasOwnProperty("activePlayerIds")) state.activePlayerIds = emscripten::vecFromJSArray<std::string>(jsState["activePlayerIds"]);
+    
+    // Important: Compute the initial hash for the state received from JS
+    state.zobristHash = Zobrist::computeHash(state);
+
     return state;
 }
 
-// --- 4-PLAYER FIX: This function now correctly defines goals for ALL players ---
-std::map<std::string, Player> jsToCppPlayers(const emscripten::val& jsPlayers) {
-    std::map<std::string, Player> players;
+std::vector<Player> jsToCppPlayers(const emscripten::val& jsPlayers) {
+    std::vector<Player> players;
     if (jsPlayers.isUndefined()) return players;
+    
     for (int i = 0; i < jsPlayers["length"].as<int>(); ++i) {
         std::string id = jsPlayers[i]["id"].as<std::string>();
-        if (id == "p1") players[id] = {id, [](int r, int c, int bS){ return r == 0; }};
-        else if (id == "p2") players[id] = {id, [](int r, int c, int bS){ return c == 0; }};
-        else if (id == "p3") players[id] = {id, [](int r, int c, int bS){ return r == bS - 1; }};
-        else if (id == "p4") players[id] = {id, [](int r, int c, int bS){ return c == bS - 1; }};
+        Player player;
+        player.id = id;
+        
+        if (id == "p1") player.goalCondition = [](int r, int c, int boardSize) { return r == 0; };
+        else if (id == "p2") player.goalCondition = [](int r, int c, int boardSize) { return c == 0; };
+        else if (id == "p3") player.goalCondition = [](int r, int c, int boardSize) { return r == boardSize - 1; };
+        else if (id == "p4") player.goalCondition = [](int r, int c, int boardSize) { return c == boardSize - 1; };
+        
+        players.push_back(player);
     }
     return players;
 }
@@ -240,31 +594,61 @@ std::map<std::string, Player> jsToCppPlayers(const emscripten::val& jsPlayers) {
 emscripten::val cppMoveToJs(const Move& move) {
     emscripten::val jsMove = emscripten::val::object();
     jsMove.set("type", move.type);
+    
     if (move.type != "resign") {
         emscripten::val data = emscripten::val::object();
-        if (move.type == "pawn") { data.set("row", move.pos.row); data.set("col", move.pos.col); } 
-        else if (move.type == "wall") { data.set("row", move.wall.row); data.set("col", move.wall.col); data.set("orientation", move.wall.orientation); }
+        if (move.type == "cell") {
+            data.set("row", move.pos.row);
+            data.set("col", move.pos.col);
+        } else if (move.type == "wall") {
+            data.set("row", move.wall.row);
+            data.set("col", move.wall.col);
+            data.set("orientation", move.wall.orientation);
+        }
         jsMove.set("data", data);
     }
     return jsMove;
 }
 
 emscripten::val findBestMove(const emscripten::val& jsState, const emscripten::val& jsPlayers) {
+    // Clear TT for each new move calculation to avoid stale data from different game states.
+    transpositionTable.clear();
+
     GameState state = jsToCppState(jsState);
-    std::map<std::string, Player> players = jsToCppPlayers(jsPlayers);
-    Move bestMove;
-    int bestValue = -10002;
-    std::vector<Move> moves = generateAllMoves(state, players);
-    if (moves.empty()) return cppMoveToJs({"resign"});
-    bestMove = moves[0];
+    std::vector<Player> players = jsToCppPlayers(jsPlayers);
+    
+    std::vector<Move> moves = generateAndOrderMoves(state, players);
+    if (moves.empty()) {
+        return cppMoveToJs({"resign", {}, {}});
+    }
+
     for (const auto& move : moves) {
         GameState nextState = applyMove(state, move, players);
-        int value = -negamax(nextState, DEFAULT_MAX_DEPTH - 1, -10001, 10001, -1, players);
-        if (value > bestValue) { bestValue = value; bestMove = move; }
+        if (nextState.status == "ended" && nextState.winner == state.playerTurn) {
+            // This move is an instant win. There is no better move. Take it immediately.
+            return cppMoveToJs(move); 
+        }
     }
+    
+    Move bestMove = moves[0];
+    int bestValue = -20000; // Large negative number
+    
+    for (const auto& move : moves) {
+        GameState nextState = applyMove(state, move, players);
+        // The first call from the root is for the maximizing player (color=1)
+        // The recursive call will then be for the minimizing player (color=-1)
+        int value = -negamax(nextState, DEFAULT_MAX_DEPTH - 1, -20000, 20000, -1, players, 1);
+        if (value > bestValue) {
+            bestValue = value;
+            bestMove = move;
+        }
+    }
+    
     return cppMoveToJs(bestMove);
 }
 
 EMSCRIPTEN_BINDINGS(quoridor_ai_module) {
+    // Call Zobrist initialization once when the module loads
+    Zobrist::initialize();
     emscripten::function("findBestMove", &findBestMove);
 }
