@@ -12,13 +12,13 @@
 #include <random>
 #include <chrono>
 #include <unordered_map>
+#include <climits>
 
 #include <emscripten.h>
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
 // --- CONFIGURATION ---
-const int DEFAULT_MAX_DEPTH = 4;
 const double PATH_SCORE_BASE = 2.0;
 const int MAX_EXPECTED_PATH = 16;
 
@@ -41,6 +41,22 @@ struct Move {
     std::string type; 
     PawnPos pos; 
     Wall wall; 
+
+    bool operator==(const Move& o) const {
+        if (type != o.type) {
+            return false;
+        }
+        if (type == "cell") {
+            return pos == o.pos;
+        }
+        if (type == "wall") {
+            return wall == o.wall;
+        }
+        if (type == "resign") {
+            return true;
+        }
+        return false;
+    }
 };
 
 struct Player { 
@@ -263,7 +279,6 @@ GameState applyPawnMove(GameState gameState, const PawnPos& moveData, const std:
     if (currentPlayer->goalCondition(moveData.row, moveData.col, gameState.boardSize)) {
         gameState.status = "ended";
         gameState.winner = currentPlayerId;
-        gameState.playerTurn = "";
     } else {
         gameState = switchTurn(gameState);
     }
@@ -293,40 +308,49 @@ GameState applyMove(GameState gameState, const Move& move, const std::vector<Pla
     return gameState;
 }
 
-// --- AI LOGIC ---
+// --- AI LOGIC ---//
 
 int getShortestPathLength(const PawnPos& startPos, const std::function<bool(int, int, int)>& goalCondition, const std::vector<Wall>& placedWalls, int boardSize) {
     if (goalCondition(startPos.row, startPos.col, boardSize)) return 0;
     
     std::queue<std::pair<PawnPos, int>> queue;
-    std::set<std::string> visited;
-    
+    bool visited[Zobrist::MAX_BOARD_SIZE][Zobrist::MAX_BOARD_SIZE] = {false};
+
     queue.push({startPos, 0});
-    visited.insert(std::to_string(startPos.row) + "," + std::to_string(startPos.col));
+    visited[startPos.row][startPos.col] = true;
     
     while (!queue.empty()) {
         PawnPos currentPos = queue.front().first;
         int distance = queue.front().second;
         queue.pop();
-        
-        if (goalCondition(currentPos.row, currentPos.col, boardSize)) return distance;
-        
-        std::vector<PawnPos> neighbors = {{currentPos.row - 1, currentPos.col}, {currentPos.row + 1, currentPos.col}, {currentPos.row, currentPos.col - 1}, {currentPos.row, currentPos.col + 1}};
+                
+        std::vector<PawnPos> neighbors = {
+            {currentPos.row - 1, currentPos.col}, 
+            {currentPos.row + 1, currentPos.col}, 
+            {currentPos.row, currentPos.col - 1}, 
+            {currentPos.row, currentPos.col + 1}
+        };
+
         for (const auto& neighbor : neighbors) {
-            std::string key = std::to_string(neighbor.row) + "," + std::to_string(neighbor.col);
-            if (neighbor.row >= 0 && neighbor.row < boardSize && neighbor.col >= 0 && neighbor.col < boardSize && !isWallBetween(placedWalls, currentPos.row, currentPos.col, neighbor.row, neighbor.col) && visited.find(key) == visited.end()) {
-                visited.insert(key);
+            if (neighbor.row >= 0 && neighbor.row < boardSize && neighbor.col >= 0 && neighbor.col < boardSize && 
+                !isWallBetween(placedWalls, currentPos.row, currentPos.col, neighbor.row, neighbor.col) && 
+                !visited[neighbor.row][neighbor.col]) {
+                
+                // If we found a goal, we can return immediately. This is the shortest path.
+                if (goalCondition(neighbor.row, neighbor.col, boardSize)) return distance + 1;
+
+                visited[neighbor.row][neighbor.col] = true;
                 queue.push({neighbor, distance + 1});
             }
         }
     }
-    return -1; // No path exists
+    return -1;
 }
 
 // ** FINAL STRATEGIC EVALUATION FUNCTION **
 int evaluate(const GameState& state, const std::vector<Player>& players) {
     if (state.status == "ended") {
-        return (state.winner == state.playerTurn) ? 1000000 : -1000000;
+        return (state.winner == state.playerTurn) ? INT_MAX : -INT_MAX;
     }
 
     std::string myId = state.playerTurn;
@@ -335,10 +359,7 @@ int evaluate(const GameState& state, const std::vector<Player>& players) {
         if (p.id == myId) myPlayer = &p;
     }
 
-    if (!myPlayer || !state.pawnPositions.count(myId)) return 0; // Not enough info
-
     int myPath = getShortestPathLength(state.pawnPositions.at(myId), myPlayer->goalCondition, state.placedWalls, state.boardSize);
-    if (myPath == -1) return -999999; // Catastrophic failure if my own path is blocked.
 
     // --- Heuristic: Shortest Path Difference (vs. most threatening opponent) ---
     int mostThreateningOpponentPath = MAX_EXPECTED_PATH + 1;
@@ -411,9 +432,13 @@ std::vector<Move> generateAndOrderMoves(const GameState& state, const std::vecto
     std::vector<PawnPos> pawnMoves = calculateLegalPawnMoves(state.pawnPositions, state.placedWalls, players, state.activePlayerIds, state.playerTurnIndex, state.boardSize);
     for (const auto& pos : pawnMoves) {
         int newMyPath = getShortestPathLength(pos, myPlayer->goalCondition, state.placedWalls, state.boardSize);
-        if (newMyPath == -1) continue; // Don't consider moves that trap myself.
 
-        // Score is based on how much closer to the goal we get.
+        if (myPlayer->goalCondition(pos.row, pos.col, state.boardSize)) {
+            scoredMoves.push_back({{"cell", pos, {}}, INT_MAX});
+            continue;
+        }
+
+        // Score based on how much closer to the goal we get.
         int score = (initialMyPath - newMyPath); 
         scoredMoves.push_back({{"cell", pos, {}}, 10000 + score * 100});
     }
@@ -471,49 +496,60 @@ std::vector<Move> generateAndOrderMoves(const GameState& state, const std::vecto
     return sortedMoves;
 }
 
-// ** NEGAMAX WITH ALPHA-BETA, TRANSPOSITION TABLES, AND MOVE ORDERING **
-// ** NEGAMAX WITH ALPHA-BETA, TT, MOVE ORDERING, AND DEPTH-ADJUSTED SCORING **
-int negamax(GameState state, int depth, int alpha, int beta, int color, const std::vector<Player>& players, int ply) { // 'ply' is the search depth
+int negamax(GameState state, int depth, int alpha, int beta, int color, const std::vector<Player>& players, int ply) {
     int alphaOrig = alpha;
 
-    // 1. Transposition Table Lookup
+    // --- Transposition Table Lookup ---
     auto it = transpositionTable.find(state.zobristHash);
     if (it != transpositionTable.end() && it->second.depth >= depth) {
         TTEntry entry = it->second;
-        // Adjust stored score for ply difference, crucial for comparing wins at different depths
         int score = entry.score;
         if (score > 900000) score -= ply;
         if (score < -900000) score += ply;
 
         if (entry.flag == EXACT) return score;
-        else if (entry.flag == LOWERBOUND) alpha = std::max(alpha, score);
+        if (entry.flag == LOWERBOUND) alpha = std::max(alpha, score);
         else if (entry.flag == UPPERBOUND) beta = std::min(beta, score);
         if (alpha >= beta) return score;
     }
 
-    // 2. Base Cases
-    if (state.status == "ended") {
-        // A win is incredibly good, but a faster win is better.
-        // Subtract the ply count so that wins found at shallower depths have a higher score.
-        // The player whose turn it would be has lost. This is a win for the player who just moved.
-        return 1000000 - ply;
+    if (state.status == "ended" || depth == 0) {
+        int base_score = evaluate(state, players);
+
+        // Prioritize faster wins and slower losses
+        if (base_score == INT_MAX) base_score -= ply;
+        if (base_score == -INT_MAX) base_score += ply;
+        return color * base_score;
     }
 
-    if (depth == 0) {
-        return color * evaluate(state, players);
+    // --- NULL MOVE PRUNING (NMP) ---
+    // A technique to aggressively prune branches. The idea is: "If I can give my opponent
+    // a free move and my position is still so good that they can't beat my score, then
+    // my current position must be excellent, and I don't need to search it further."
+    const int R = 3; // The reduction factor. A higher R is more aggressive.
+    // Safety checks: Only do NMP if the depth is sufficient and we aren't in a late-game
+    // position where being forced to move (zugzwang) is a disadvantage.
+    if (depth >= R + 1 && state.wallsLeft.at(state.playerTurn) > 0) {
+        GameState tempState = switchTurn(state); // Give the opponent a free move
+        int null_move_score = -negamax(tempState, depth - 1 - R, -beta, -beta + 1, -color, players, ply + 1);
+
+        if (null_move_score >= beta) {
+            // The opponent couldn't hurt us even with a free move, so this position is
+            // very strong. We can prune this entire branch.
+            return beta; 
+        }
     }
-    
-    // 3. Generate and Order Moves
+    // --- END OF NMP ---
+
+    // --- Standard Search Logic ---
     std::vector<Move> moves = generateAndOrderMoves(state, players);
     if (moves.empty()) {
         return color * evaluate(state, players);
     }
 
-    // 4. Recurse through moves
-    int maxVal = -1000001; // Negative infinity
+    int maxVal = -INT_MAX;
     for (const auto& move : moves) {
         GameState nextState = applyMove(state, move, players);
-        // Pass ply + 1 to the recursive call
         int val = -negamax(nextState, depth - 1, -beta, -alpha, -color, players, ply + 1); 
         
         maxVal = std::max(maxVal, val);
@@ -524,9 +560,8 @@ int negamax(GameState state, int depth, int alpha, int beta, int color, const st
         }
     }
 
-    // 5. Transposition Table Store
+    // --- Transposition Table Store ---
     TTEntry new_entry;
-    // Store the score BEFORE ply adjustment, so it's consistent across different search paths
     new_entry.score = maxVal; 
     new_entry.depth = depth;
     if (maxVal <= alphaOrig) new_entry.flag = UPPERBOUND;
@@ -610,45 +645,53 @@ emscripten::val cppMoveToJs(const Move& move) {
     return jsMove;
 }
 
-emscripten::val findBestMove(const emscripten::val& jsState, const emscripten::val& jsPlayers) {
-    // Clear TT for each new move calculation to avoid stale data from different game states.
-    transpositionTable.clear();
-
+// ** CORRECTED findBestMove WITH EFFICIENT ITERATIVE DEEPENING **
+emscripten::val findBestMove(const emscripten::val& jsState, const emscripten::val& jsPlayers, int targetDepth) {
     GameState state = jsToCppState(jsState);
     std::vector<Player> players = jsToCppPlayers(jsPlayers);
     
-    std::vector<Move> moves = generateAndOrderMoves(state, players);
-    if (moves.empty()) {
+    // Use the passed-in depth, with a fallback to a reasonable default.
+    const int TARGET_DEPTH = (targetDepth > 0) ? targetDepth : 4; 
+
+    // Generate the initial list of moves just once.
+    std::vector<Move> movesToSearch = generateAndOrderMoves(state, players);
+    if (movesToSearch.empty()) {
         return cppMoveToJs({"resign", {}, {}});
     }
 
-    for (const auto& move : moves) {
-        GameState nextState = applyMove(state, move, players);
-        if (nextState.status == "ended" && nextState.winner == state.playerTurn) {
-            // This move is an instant win. There is no better move. Take it immediately.
-            return cppMoveToJs(move); 
+    Move bestMoveOverall = movesToSearch[0];
+
+    // --- EFFICIENT ITERATIVE DEEPENING LOOP ---
+    for (int current_depth = 1; current_depth <= TARGET_DEPTH; ++current_depth) {
+        Move bestMoveThisIteration = movesToSearch[0];
+        int bestValue = -INT_MAX;
+
+        // The 'movesToSearch' vector is now ordered from the PREVIOUS iteration's results.
+        for (const auto& move : movesToSearch) {
+            GameState nextState = applyMove(state, move, players);
+            int value = -negamax(nextState, current_depth - 1, -INT_MAX, INT_MAX, -1, players, 1);
+            if (value > bestValue) {
+                bestValue = value;
+                bestMoveThisIteration = move;
+            }
         }
+        bestMoveOverall = bestMoveThisIteration;
+
+        // --- THE KEY OPTIMIZATION ---
+        // Re-order the moves list for the NEXT, deeper search.
+        // We find the best move from the iteration we just finished and move it to the front.
+        auto it = std::find(movesToSearch.begin(), movesToSearch.end(), bestMoveThisIteration);
+        if (it != movesToSearch.begin()) {
+            std::rotate(movesToSearch.begin(), it, it + 1);
+        }
+        // -----------------------------
     }
     
-    Move bestMove = moves[0];
-    int bestValue = -20000; // Large negative number
-    
-    for (const auto& move : moves) {
-        GameState nextState = applyMove(state, move, players);
-        // The first call from the root is for the maximizing player (color=1)
-        // The recursive call will then be for the minimizing player (color=-1)
-        int value = -negamax(nextState, DEFAULT_MAX_DEPTH - 1, -20000, 20000, -1, players, 1);
-        if (value > bestValue) {
-            bestValue = value;
-            bestMove = move;
-        }
-    }
-    
-    return cppMoveToJs(bestMove);
+    return cppMoveToJs(bestMoveOverall);
 }
 
 EMSCRIPTEN_BINDINGS(quoridor_ai_module) {
     // Call Zobrist initialization once when the module loads
     Zobrist::initialize();
-    emscripten::function("findBestMove", &findBestMove);
+    emscripten::function("findBestMove", &findBestMove, emscripten::allow_raw_pointers());
 }

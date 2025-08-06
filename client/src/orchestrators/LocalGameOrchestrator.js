@@ -36,8 +36,12 @@ export default class LocalGameOrchestrator {
     initialize() {
         for (const player of this.players) {
             const playerType = this.config.playerTypes[player.id];
-            if (playerType === 'human') this.controllers[player.id] = new HumanController(this.scene);
-            else if (playerType === 'ai') this.controllers[player.id] = new AIController(this.scene, this);
+            if (playerType === 'human') {
+                this.controllers[player.id] = new HumanController(this.scene);
+            } else if (playerType === 'ai') {
+                const difficulty = this.config.playerDifficulties[player.id];
+                this.controllers[player.id] = new AIController(this.scene, this, difficulty);
+            }
         }
         
         this.scene.events.on('wall-hover-in', this.onWallHoverIn, this);

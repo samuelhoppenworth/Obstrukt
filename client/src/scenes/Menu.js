@@ -62,15 +62,21 @@ export default class Menu extends Phaser.Scene {
                 : ALL_PLAYERS.slice(0, 4);
 
             const playerTypes = {};
+            const playerDifficulties = {};
             playersForGame.forEach(player => {
-                const select = document.getElementById(`${player.id}-type`);
-                playerTypes[player.id] = select.value;
+                const typeSelect = document.getElementById(`${player.id}-type`);
+                playerTypes[player.id] = typeSelect.value;
+                if (typeSelect.value === 'ai') {
+                    const difficultySelect = document.getElementById(`${player.id}-difficulty`);
+                    playerDifficulties[player.id] = parseInt(difficultySelect.value, 10);
+                }
             });
             
             this.scene.start('Game', {
                 gameType: 'local',
                 numPlayers: numPlayers,
                 playerTypes: playerTypes,
+                playerDifficulties: playerDifficulties,
                 boardSize: boardSize
             });
         });
@@ -84,17 +90,47 @@ export default class Menu extends Phaser.Scene {
         const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
 
         playersForGame.forEach((player, index) => {
-            const item = document.createElement('div');
-            // This class is important for consistent styling
-            item.className = 'config-item';
-            item.innerHTML = `
+            const isInitiallyAI = index !== 0;
+
+            const playerContainer = document.createElement('div');
+            playerContainer.className = 'player-config-group'; 
+
+            const typeItem = document.createElement('div');
+            typeItem.className = 'config-item';
+            typeItem.innerHTML = `
                 <label for="${player.id}-type">Player ${index + 1}:</label>
                 <select id="${player.id}-type">
-                    <option value="human" ${index === 0 ? 'selected' : ''}>Human</option>
-                    <option value="ai" ${index !== 0 ? 'selected' : ''}>AI</option>
+                    <option value="human" ${!isInitiallyAI ? 'selected' : ''}>Human</option>
+                    <option value="ai" ${isInitiallyAI ? 'selected' : ''}>AI</option>
                 </select>
             `;
-            container.appendChild(item);
+            playerContainer.appendChild(typeItem);
+
+            const difficultyItem = document.createElement('div');
+            difficultyItem.className = 'config-item';
+            difficultyItem.id = `${player.id}-difficulty-container`;
+            difficultyItem.innerHTML = `
+                <label for="${player.id}-difficulty">Difficulty:</label>
+                <select id="${player.id}-difficulty">
+                    <option value="2">Depth 2</option>
+                    <option value="4">Depth 4</option>
+                    <option value="6">Depth 8</option>
+                    <option value="8">Depth 10</option>
+                </select>
+            `;
+            playerContainer.appendChild(difficultyItem);
+            
+            container.appendChild(playerContainer);
+
+            const typeSelect = document.getElementById(`${player.id}-type`);
+            const difficultyContainer = document.getElementById(`${player.id}-difficulty-container`);
+            
+            const toggleDifficulty = () => {
+                difficultyContainer.style.display = typeSelect.value === 'ai' ? 'flex' : 'none';
+            };
+            
+            typeSelect.addEventListener('change', toggleDifficulty);
+            toggleDifficulty(); 
         });
     }
 

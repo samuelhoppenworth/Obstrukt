@@ -20,12 +20,12 @@ self.onmessage = (event) => {
         return;
     }
 
-    const { type, gameState, players } = event.data;
+    const { type, gameState, players, difficulty } = event.data;
 
     if (type === 'calculate-move') {
         // This is the blocking call, but it's happening on the worker thread,
         // so it doesn't freeze the UI.
-        const move = aiModule.findBestMove(gameState, players);
+        const move = aiModule.findBestMove(gameState, players, difficulty);
         
         // Send the result back to the main thread.
         self.postMessage({ type: 'move-calculated', move });

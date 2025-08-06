@@ -1,8 +1,9 @@
 // src/controllers/AIController.js
 
 export default class AIController {
-    constructor(scene, orchestrator) {
+    constructor(scene, orchestrator, difficulty) {
         this.orchestrator = orchestrator;
+        this.difficulty = difficulty || 4; // Default to medium
         this.worker = new Worker(new URL('../workers/ai.worker.js', import.meta.url), { type: 'module' });
         
         this.resolveMovePromise = null;
@@ -41,7 +42,8 @@ export default class AIController {
             this.worker.postMessage({
                 type: 'calculate-move',
                 gameState,
-                players: serializablePlayers
+                players: serializablePlayers,
+                difficulty: this.difficulty
             });
         });
     }

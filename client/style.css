@@ -73,6 +73,13 @@ canvas {
   padding-bottom: 5px;
 }
 
+.player-config-group {
+    background-color: #3a3a3a;
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
 .config-item, .player-info-item {
   display: flex;
   justify-content: space-between;
