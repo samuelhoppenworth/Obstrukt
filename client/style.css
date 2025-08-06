@@ -162,6 +162,13 @@ canvas {
     background: #666;
 }
 
+/* --- ADDED: Style for disabled history buttons --- */
+.history-controls button:disabled {
+    background: #444;
+    color: #888;
+    cursor: not-allowed;
+}
+
 /* --- Action and End-Game panels --- */
 .action-buttons {
     margin: 10px 0;
