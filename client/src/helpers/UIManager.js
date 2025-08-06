@@ -68,12 +68,9 @@ export default class UIManager {
     showDefaultActions(config) {
         const actionContainer = document.getElementById('action-container');
         if (!actionContainer) return;
-        console.log("got here!");
         
         let drawButtonHTML = '';
-        console.log("config:", config);
         if (config.gameType === 'online' && config.numPlayers === 2) {
-            console.log("ran");
             drawButtonHTML = `<button id="draw-btn">Request Draw</button>`;
         }
 
@@ -142,14 +139,18 @@ export default class UIManager {
         let message = "The game ended in a draw.";
 
         if (endState.winner) {
-            const winnerName = endState.winner.toUpperCase();
+            let winnerName = endState.winner;
+            // A simple mapping for better display names if desired
+            const nameMap = {'p1': 'Red', 'p2': 'Green', 'p3': 'Purple', 'p4': 'Blue'};
+            winnerName = nameMap[endState.winner] || endState.winner.toUpperCase();
+            
             result = `${winnerName} WINS`;
             switch(endState.reason) {
-                case 'goal': message = `${winnerName} reached the goal`; break;
+                case 'goal': message = `${winnerName} reached the goal.`; break;
                 case 'timeout': message = `Opponent ran out of time.`; break;
                 case 'resignation': message = `Opponent resigned.`; break;
                 case 'disconnection': message = `Opponent disconnected.`; break;
-                case 'last player standing': message = `${winnerName} is the last player standing`; break;
+                case 'last player standing': message = `${winnerName} is the last player standing.`; break;
                 default: message = `${winnerName} is victorious!`;
             }
         } else {
@@ -187,6 +188,22 @@ export default class UIManager {
         document.getElementById('hist-prev')?.addEventListener('click', () => this.scene.events.emit('history-navigate', 'prev'));
         document.getElementById('hist-next')?.addEventListener('click', () => this.scene.events.emit('history-navigate', 'next'));
         document.getElementById('hist-end')?.addEventListener('click', () => this.scene.events.emit('history-navigate', 'end'));
+    }
+
+    // --- ADDED: Method to enable/disable history buttons ---
+    updateHistoryButtons(index, maxIndex) {
+        const atStart = (index <= 0);
+        const atEnd = (index >= maxIndex);
+
+        const startBtn = document.getElementById('hist-start');
+        const prevBtn = document.getElementById('hist-prev');
+        const nextBtn = document.getElementById('hist-next');
+        const endBtn = document.getElementById('hist-end');
+        
+        if(startBtn) startBtn.disabled = atStart;
+        if(prevBtn) prevBtn.disabled = atStart;
+        if(nextBtn) nextBtn.disabled = atEnd;
+        if(endBtn) endBtn.disabled = atEnd;
     }
 
     formatTime(ms) {
