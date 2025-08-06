@@ -12,24 +12,14 @@ export default class LocalGameOrchestrator {
         this.viewingHistoryIndex = -1;
         this.controllers = {};
         this.isAIThinking = false;
+        this.timerInterval = null; // To hold the setInterval reference
 
-        this.gameState = {
-            boardSize: config.boardSize,
-            status: 'active', winner: null, reason: null,
-            playerTurn: config.players[0].id,
-            pawnPositions: config.players.reduce((acc, p) => { acc[p.id] = p.startPos(config.boardSize); return acc; }, {}),
-            wallsLeft: config.players.reduce((acc, p) => { acc[p.id] = config.wallsPerPlayer; return acc; }, {}),
-            timers: config.players.reduce((acc, p) => { acc[p.id] = config.timePerPlayer; return acc; }, {}),
-            placedWalls: [], availablePawnMoves: [],
-            activePlayerIds: config.players.map(p => p.id),
-            playerTurnIndex: 0,
-        };
-
-        this.gameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
-            this.gameState.pawnPositions, this.gameState.placedWalls,
-            this.players, this.gameState.activePlayerIds,
-            this.gameState.playerTurnIndex, this.config.boardSize
+        const initialState = this.#createInitialState();
+        initialState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
+            initialState.pawnPositions, initialState.placedWalls,
+            this.players, initialState.activePlayerIds, 0, this.config.boardSize
         );
+        this.history.push(initialState);
         this.#recordHistory();
     }
 
@@ -48,120 +38,226 @@ export default class LocalGameOrchestrator {
         this.scene.events.on('wall-hover-out', () => this.scene.renderer.clearWallHighlight());
         this.scene.events.on('history-navigate', this.navigateHistory, this);
         this.scene.events.on('resign-request', this.handleResignation, this);
-        this.scene.events.on('human-action-input', (move) => {
-            if (this.controllers[this.gameState.playerTurn] instanceof HumanController) this.handleMoveRequest(move);
-        });
+        this.scene.events.on('human-action-input', (move) => this._handleHumanMove(move));
+        
         this.scene.onStateUpdate(this.getGameState());
+        this.scene.uiManager.updateHistoryButtons(this.viewingHistoryIndex, this.history.length - 1);
+
+        // --- Start the game's background processes ---
+        this._startTimers();
+        this._requestNextMove();
     }
 
     onStateUpdated(gameState) {
         // This function is now just an event hook for the UI. The core logic is in `update`.
     }
 
-    update(delta) {
-        if (this.gameState.status !== 'active' || this.isViewingHistory()) return;
-        const currentPlayerId = this.gameState.playerTurn;
-        if (!currentPlayerId) return;
+    // The update loop is now only for potential future uses, not core game logic.
+    update(delta) {}
 
-        // The update loop is never blocked and always decrements the timer.
-        this.gameState.timers[currentPlayerId] -= delta;
-        this.scene.uiManager.updateTimers(this.gameState.timers);
+    _handleHumanMove(move) {
+        const baseState = this.history[this.viewingHistoryIndex];
+        if (baseState.status !== 'active') return;
 
-        if (this.gameState.timers[currentPlayerId] <= 0) {
-            this.handlePlayerLoss(currentPlayerId, 'timeout');
+        // BUG FIX: Only process input if it's actually a human's turn.
+        if (this.config.playerTypes[baseState.playerTurn] !== 'human') {
             return;
         }
 
+        if (this.isViewingHistory()) {
+            this.history.splice(this.viewingHistoryIndex + 1);
+        }
+
+        this._applyAndCommitMove(baseState, move);
+        this._requestNextMove(); // After human moves, request the next (likely AI) move.
+    }
+
+    _handleAIMove(move) {
+        const baseState = this.getCurrentGameState();
+        if (baseState.status !== 'active') return;
+
+        this._applyAndCommitMove(baseState, move);
+        this._requestNextMove(); // After AI moves, request the next move in the chain.
+    }
+    
+    _requestNextMove() {
+        const currentState = this.getCurrentGameState();
+        // Don't do anything if the game is over, we are browsing history, or an AI is already thinking.
+        if (currentState.status !== 'active' || this.isViewingHistory() || this.isAIThinking) {
+            return;
+        }
+
+        const currentPlayerId = currentState.playerTurn;
         const currentController = this.controllers[currentPlayerId];
-        if (currentController instanceof AIController && !this.isAIThinking) {
+
+        if (currentController instanceof AIController) {
             this.isAIThinking = true;
             
-            // This call is now TRULY non-blocking. It sends a message and returns immediately.
             currentController.getMove().then(move => {
-                // This callback runs when the worker has finished its calculation.
-                if (this.scene.isGameOver || this.gameState.playerTurn !== currentPlayerId) {
-                    this.isAIThinking = false;
+                this.isAIThinking = false; // Free up the lock first
+
+                // If the state changed while thinking (e.g., user resigned), abort.
+                if (this.getCurrentGameState().playerTurn !== currentPlayerId || this.getCurrentGameState().status !== 'active') {
                     return;
                 }
                 
-                if (move && move.type) this.handleMoveRequest(move);
-                else this.handlePlayerLoss(currentPlayerId, 'error');
-
-                this.isAIThinking = false;
+                if (move && move.type) {
+                    this._handleAIMove(move);
+                } else {
+                    this.handlePlayerLoss(currentPlayerId, 'error');
+                }
             });
         }
     }
 
-    handleMoveRequest(move) {
-        if (this.isViewingHistory() || this.gameState.status !== 'active') return;
+    _applyAndCommitMove(baseState, move) {
         if (move.type === 'pawn') move.type = 'cell';
 
-        const newGameState = GameLogic.applyMove(this.getGameState(), move, this.players, this.config);
+        const newGameState = GameLogic.applyMove(baseState, move, this.players, this.config);
         if (newGameState) {
-            this.gameState = newGameState;
-            this.#recordHistory();
-            this.scene.onStateUpdate(this.getGameState());
+            this.#commitNewGameState(newGameState);
         } else {
             console.warn("Illegal move blocked by orchestrator:", move);
-            if (this.controllers[this.gameState.playerTurn] instanceof AIController) {
-                this.handlePlayerLoss(this.gameState.playerTurn, 'illegal move');
+            if (this.controllers[baseState.playerTurn] instanceof AIController) {
+                this.handlePlayerLoss(baseState.playerTurn, 'illegal move');
             }
         }
     }
 
+    _startTimers() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+        }
+
+        this.timerInterval = setInterval(() => {
+            if (this.isViewingHistory() || this.scene.isGameOver) {
+                return;
+            }
+
+            const currentState = this.getCurrentGameState();
+            if (currentState.status !== 'active') return;
+
+            const currentPlayerId = currentState.playerTurn;
+            if (!currentPlayerId) return;
+
+            currentState.timers[currentPlayerId] -= 1000;
+            this.scene.uiManager.updateTimers(currentState.timers);
+
+            if (currentState.timers[currentPlayerId] <= 0) {
+                this.handlePlayerLoss(currentPlayerId, 'timeout');
+            }
+        }, 1000);
+    }
+
     handleResignation() {
-        if (this.gameState.status !== 'active') return;
-        const currentPlayerId = this.gameState.playerTurn;
+        const currentState = this.getCurrentGameState();
+        if (currentState.status !== 'active') return;
+        const currentPlayerId = currentState.playerTurn;
         if (this.config.playerTypes[currentPlayerId] === 'human') this.handlePlayerLoss(currentPlayerId, 'resignation');
     }
 
     handlePlayerLoss(losingPlayerId, reason) {
-        if (this.gameState.status !== 'active') return;
-        const newGameState = GameLogic.applyPlayerLoss(this.getGameState(), losingPlayerId, reason);
-        if (this.gameState !== newGameState) {
-            this.gameState = newGameState;
-            if (this.gameState.status === 'active') {
-                 this.gameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
-                    this.gameState.pawnPositions, this.gameState.placedWalls,
-                    this.players, this.gameState.activePlayerIds,
-                    this.gameState.playerTurnIndex, this.config.boardSize
+        const currentState = this.getCurrentGameState();
+        if (currentState.status !== 'active') return;
+
+        const newGameState = GameLogic.applyPlayerLoss(currentState, losingPlayerId, reason);
+        if (currentState !== newGameState) {
+            if (newGameState.status === 'active') {
+                 newGameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
+                    newGameState.pawnPositions, newGameState.placedWalls,
+                    this.players, newGameState.activePlayerIds,
+                    newGameState.playerTurnIndex, this.config.boardSize
                 );
             }
-            this.#recordHistory();
-            this.scene.onStateUpdate(this.getGameState());
+            this.#commitNewGameState(newGameState);
+            // After a player is removed, immediately check if the new player is an AI
+            this._requestNextMove();
         }
     }
     
-    getGameState() { return JSON.parse(JSON.stringify(this.gameState)); }
+    getGameState() { return JSON.parse(JSON.stringify(this.getCurrentGameState())); }
+
+    getCurrentGameState() { return this.history[this.history.length - 1]; }
 
     onWallHoverIn(wallProps) {
-        const isLegal = GameLogic.isWallPlacementLegal(wallProps, this.gameState, this.players, this.config.boardSize);
+        const currentState = this.getCurrentGameState();
+        // BUG FIX: Only process hover if it's a human's turn and not in history view.
+        if (this.isViewingHistory() || this.config.playerTypes[currentState.playerTurn] !== 'human') {
+            return;
+        }
+        const isLegal = GameLogic.isWallPlacementLegal(wallProps, this.getCurrentGameState(), this.players, this.config.boardSize);
         this.scene.renderer.highlightWallSlot(wallProps, isLegal);
     }
 
     isViewingHistory() { return this.viewingHistoryIndex >= 0 && this.viewingHistoryIndex < this.history.length - 1; }
 
     navigateHistory(direction) {
+        if ((direction === 'next' || direction === 'end') && !this.isViewingHistory()) {
+            return;
+        }
+        if ((direction === 'prev' || direction === 'start') && this.viewingHistoryIndex === 0) {
+            return;
+        }
+
+        const previousViewingIndex = this.viewingHistoryIndex;
         let newIndex = this.viewingHistoryIndex;
+        
         switch (direction) {
             case 'start': newIndex = 0; break;
-            case 'prev': if (this.viewingHistoryIndex > 0) newIndex--; break;
-            case 'next': if (this.viewingHistoryIndex < this.history.length - 1) newIndex++; break;
+            case 'prev': newIndex = this.viewingHistoryIndex - 1; break;
+            case 'next': newIndex = this.viewingHistoryIndex + 1; break;
             case 'end': newIndex = this.history.length - 1; break;
         }
-        if (newIndex !== this.viewingHistoryIndex) {
+
+        if (newIndex !== previousViewingIndex) {
             this.viewingHistoryIndex = newIndex;
-            this.scene.onStateUpdate(this.history[this.viewingHistoryIndex], true);
+            
+            const isNowViewingHistory = this.isViewingHistory();
+
+            if (!isNowViewingHistory) {
+                // If we returned to the present, show the live state and trigger the next move if needed.
+                this.scene.onStateUpdate(this.getCurrentGameState(), false);
+                this._requestNextMove();
+            } else {
+                // Otherwise, show the history slice for onion skinning
+                const onionSkinDepth = 2;
+                const historySlice = this.history.slice(this.viewingHistoryIndex, this.viewingHistoryIndex + onionSkinDepth);
+                this.scene.onStateUpdate(historySlice, true);
+            }
+
+            this.scene.uiManager.updateHistoryButtons(this.viewingHistoryIndex, this.history.length - 1);
         }
     }
 
+    #createInitialState() {
+        return {
+            boardSize: this.config.boardSize,
+            status: 'active', winner: null, reason: null,
+            playerTurn: this.config.players[0].id,
+            pawnPositions: this.config.players.reduce((acc, p) => { acc[p.id] = p.startPos(this.config.boardSize); return acc; }, {}),
+            wallsLeft: this.config.players.reduce((acc, p) => { acc[p.id] = this.config.wallsPerPlayer; return acc; }, {}),
+            timers: this.config.players.reduce((acc, p) => { acc[p.id] = this.config.timePerPlayer; return acc; }, {}),
+            placedWalls: [],
+            activePlayerIds: this.config.players.map(p => p.id),
+            playerTurnIndex: 0,
+        };
+    }
+
+    #commitNewGameState(newGameState) {
+        this.history.push(newGameState);
+        this.viewingHistoryIndex = this.history.length - 1;
+        this.scene.onStateUpdate(this.getCurrentGameState(), false);
+        this.scene.uiManager.updateHistoryButtons(this.viewingHistoryIndex, this.history.length - 1);
+    }
+
     #recordHistory() {
-        if (this.isViewingHistory()) this.history.splice(this.viewingHistoryIndex + 1);
-        this.history.push(this.getGameState());
         this.viewingHistoryIndex = this.history.length - 1;
     }
 
     destroy() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+        }
         this.scene.events.off('wall-hover-in', this.onWallHoverIn, this);
         this.scene.events.off('wall-hover-out');
         this.scene.events.off('history-navigate', this.navigateHistory, this);
