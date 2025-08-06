@@ -13,7 +13,7 @@ export default class Menu extends Phaser.Scene {
         sidePanel.innerHTML = `
             <div class="panel-section menu-panel">
                 <div class="setting-group">
-                    <h3>Board</h3>
+                    <h3>Game Settings</h3>
                     <div class="setting-row">
                         <label>Board Size</label>
                         <div class="segmented-control" id="board-size-control">
@@ -24,7 +24,7 @@ export default class Menu extends Phaser.Scene {
                         </div>
                     </div>
                     <div class="setting-row">
-                        <label>Players</label>
+                        <label>Player Count</label>
                         <div class="segmented-control" id="num-players-control">
                             <button data-value="2" class="active">2</button>
                             <button data-value="4">4</button>
@@ -33,7 +33,7 @@ export default class Menu extends Phaser.Scene {
                 </div>
 
                 <div class="setting-group">
-                    <h3>Players</h3>
+                    <h3>Player Options</h3>
                     <div class="player-setup-table" id="player-types-container">
                         <!-- Player type selectors are dynamically added here -->
                     </div>
