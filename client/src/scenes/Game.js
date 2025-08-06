@@ -17,7 +17,6 @@ export default class Game extends Phaser.Scene {
         
         this.uiManager = new UIManager(this);
 
-        // --- Simplified logic: Directly setup for a local game ---
         const numPlayers = this.startupConfig.numPlayers;
         const boardSize = this.startupConfig.boardSize || 9;
         const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
@@ -47,34 +46,63 @@ export default class Game extends Phaser.Scene {
         this.inputHandler.setupInputListeners();
         
         this.uiManager.setupGameUI(this.gameConfig.players, this.orchestrator.getGameState().timers, this.gameConfig);
+        
+        this.input.keyboard.on('keydown-LEFT', () => this.events.emit('history-navigate', 'prev'));
+        this.input.keyboard.on('keydown-RIGHT', () => this.events.emit('history-navigate', 'next'));
+        this.input.keyboard.on('keydown-UP', () => this.events.emit('history-navigate', 'end'));
+        this.input.keyboard.on('keydown-DOWN', () => this.events.emit('history-navigate', 'start'));
 
         this.orchestrator.initialize();
     }
 
     onStateUpdate(gameState, isHistoryView = false) {
-        this.latestGameState = gameState;
+        if (isHistoryView && Array.isArray(gameState)) {
+            // --- History View with Onion Skinning ---
+            const historySlice = gameState;
+            const focusedState = historySlice[0];
+            this.latestGameState = focusedState;
 
-        let shouldShowHighlights = false;
-        const currentPlayerId = gameState.playerTurn;
+            const renderOptions = {
+                perspective: 'p1',
+                shouldShowHighlights: false,
+                onionSkinStates: historySlice 
+            };
+            
+            if (this.renderer) {
+                this.renderer.drawGameState(focusedState, renderOptions);
+                this.renderer.toggleHistoryOverlay(true);
+            }
+            this.uiManager.updatePlayerInfo(focusedState);
+            this.uiManager.updateTimers(focusedState.timers);
+            
+        } else {
+            // --- Live View (Single State) ---
+            this.latestGameState = gameState;
+            const renderOptions = {
+                perspective: 'p1',
+                shouldShowHighlights: false,
+            };
 
-        // --- Simplified highlight logic ---
-        if (currentPlayerId && this.gameConfig.playerTypes[currentPlayerId] === 'human') {
-            shouldShowHighlights = true;
+            const currentPlayerId = gameState.playerTurn;
+            if (!isHistoryView && currentPlayerId && this.gameConfig.playerTypes[currentPlayerId] === 'human') {
+                renderOptions.shouldShowHighlights = true;
+            }
+
+            if (this.renderer) {
+                this.renderer.drawGameState(gameState, renderOptions);
+                this.renderer.toggleHistoryOverlay(isHistoryView);
+            }
+            
+            this.uiManager.updatePlayerInfo(gameState);
+            this.uiManager.updateTimers(gameState.timers);
         }
 
-        if (this.renderer) {
-            this.renderer.drawGameState(gameState, { perspective: 'p1', shouldShowHighlights });
-        }
-        
-        this.uiManager.updatePlayerInfo(gameState);
-        this.uiManager.updateTimers(gameState.timers);
-        
-        if (gameState.status === 'ended') {
+        // --- Game End Logic (applies to both views) ---
+        if (this.latestGameState.status === 'ended') {
             if (this.isGameOver) return;
             this.isGameOver = true;
             this.renderer.clearWallHighlight();
-            this.uiManager.showEndGameUI(gameState);
-            this.orchestrator.destroy();
+            this.uiManager.showEndGameUI(this.latestGameState);
             return;
         }
         
@@ -86,6 +114,12 @@ export default class Game extends Phaser.Scene {
     update(time, delta) {
         if (this.orchestrator && this.orchestrator.update) {
             this.orchestrator.update(delta);
+        }
+    }
+
+    shutdown() {
+        if (this.orchestrator) {
+            this.orchestrator.destroy();
         }
     }
 }
