@@ -41,6 +41,7 @@ function _applySwitchTurn(gameState) {
 function _applyPawnMove(gameState, moveData, players, boardSize) {
     let newState = JSON.parse(JSON.stringify(gameState));
     const currentPlayerId = newState.playerTurn;
+    
     newState.pawnPositions[currentPlayerId] = { row: moveData.row, col: moveData.col };
     
     const currentPlayer = players.find(p => p.id === currentPlayerId);
@@ -71,7 +72,6 @@ export function applyMove(gameState, move, players, config) {
     let isLegal = false;
     let nextState = null;
 
-    console.log("apply move ", move);
     switch (move.type) {
         case 'cell':
             isLegal = isPawnMoveLegal(move.data, gameState.availablePawnMoves);
@@ -86,8 +86,6 @@ export function applyMove(gameState, move, players, config) {
             }
             break;
     }
-    console.log("islegal: ", isLegal);
-    console.log("nextState: ", nextState);
 
     if (isLegal && nextState) {
         if (nextState.status === 'active') {
