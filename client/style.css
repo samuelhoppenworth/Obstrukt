@@ -3,8 +3,8 @@ html, body {
   padding: 0;
   height: 100vh;
   background: #1e1e1e;
-  overflow-x: hidden; /* Prevent horizontal scrolling */
-  overflow-y: auto;   /* Allow vertical scrolling on mobile */
+  overflow-x: hidden;
+  overflow-y: auto;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   color: #ccc;
 }
@@ -49,42 +49,124 @@ canvas {
 }
 
 #side-panel {
-  width: 320px;
+  width: 340px;
   background-color: #2a2a2a;
   margin-left: 20px;
   padding: 20px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  border-radius: 5px;
+  border-radius: 8px;
+  height: auto;
 }
 
-/* --- Side Panel Content Styling --- */
-.panel-section {
-  margin-bottom: 20px;
+/* --- Menu Redesign Styles --- */
+.menu-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
 }
 
-.panel-section h2 {
-  color: #eee;
-  font-size: 18px;
-  margin-top: 0;
-  margin-bottom: 10px;
-  border-bottom: 1px solid #444;
-  padding-bottom: 5px;
+/* Updated h3 to act as the main section headers */
+.setting-group h3 {
+    color: #eee;
+    font-size: 18px;
+    margin: 0 0 15px 0;
+    font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #444;
+    text-transform: none; /* Removed uppercase */
 }
 
-.player-config-group {
-    background-color: #3a3a3a;
-    border-radius: 4px;
-    padding: 10px;
-    margin-bottom: 10px;
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
 }
 
-.config-item, .player-info-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+.setting-row label {
+    font-size: 15px;
+    color: #ddd;
+}
+
+.segmented-control {
+    display: flex;
+    background-color: #3e3e3e;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.segmented-control button {
+    background: none;
+    border: none;
+    color: #bbb;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 0.2s, color 0.2s;
+    border-left: 1px solid #555;
+}
+
+.segmented-control button:first-child { border-left: none; }
+.segmented-control button:hover { background-color: #4f4f4f; }
+.segmented-control button.active {
+    background-color: #008cba;
+    color: white;
+    font-weight: 600;
+}
+
+.player-setup-table {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.player-config-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    align-items: center;
+    gap: 10px;
+}
+
+.player-name-label {
+    font-size: 15px;
+    color: #ccc;
+    font-weight: 500;
+}
+
+.player-type-toggle {
+    display: flex;
+    border-radius: 6px;
+    background-color: #3e3e3e;
+    overflow: hidden;
+    justify-self: center;
+}
+.player-type-toggle input[type="radio"] { display: none; }
+.player-type-toggle label {
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    color: #bbb;
+    font-size: 13px;
+}
+.player-type-toggle input[type="radio"]:checked + label {
+    background-color: #666;
+    color: white;
+}
+
+.player-difficulty-selector {
+    justify-self: flex-end;
+    transition: visibility 0.2s;
+}
+
+select {
+    background-color: #3e3e3e;
+    color: #ddd;
+    border: 1px solid #555;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 13px;
 }
 
 #start-game-btn {
@@ -94,248 +176,101 @@ canvas {
   background-color: #008cba;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  margin-top: auto;
+  margin-top: 30px; /* Replaced 'auto' with a fixed value */
+  transition: background-color 0.2s;
 }
-#start-game-btn:hover {
-  background-color: #009dce;
-}
+#start-game-btn:hover { background-color: #009dce; }
 
-.player-info-list {
-    flex-grow: 1;
+/* --- In-Game Side Panel --- */
+.panel-section h2 {
+  color: #eee;
+  font-size: 18px;
+  margin-top: 0;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #444;
+  padding-bottom: 5px;
 }
-
+.player-info-list { flex-grow: 1; }
 .player-info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     background-color: #333;
     padding: 10px;
     border-radius: 4px;
     border-left: 5px solid transparent;
     transition: background-color 0.3s, border-color 0.3s;
+    margin-bottom: 12px;
 }
-
 .player-info-item.active-turn {
     background-color: #444;
-    border-left-color: #8BC34A; /* Light Green highlight */
+    border-left-color: #8BC34A;
 }
-
-.player-name {
-    display: flex;
-    align-items: center;
-    font-weight: bold;
-}
-.player-color-swatch {
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    margin-right: 10px;
-}
-
-.player-stats {
-    text-align: right;
-}
-
-.player-timer {
-    font-size: 1.2em;
-}
-
+.player-name { display: flex; align-items: center; font-weight: bold; }
+.player-color-swatch { width: 15px; height: 15px; border-radius: 50%; margin-right: 10px; }
+.player-stats { text-align: right; }
+.player-timer { font-size: 1.2em; }
 .history-controls {
     display: flex;
     justify-content: space-around;
     padding: 10px;
     background-color: #333;
     border-radius: 4px;
-    margin-top: auto; /* Push to bottom */
+    margin-top: auto;
 }
-
 .history-controls button {
-    background: #555;
-    border: none;
-    color: #ddd;
-    font-size: 18px;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    cursor: pointer;
+    background: #555; border: none; color: #ddd;
+    font-size: 18px; width: 40px; height: 40px;
+    border-radius: 50%; cursor: pointer;
 }
-.history-controls button:hover {
-    background: #666;
-}
-
-/* --- ADDED: Style for disabled history buttons --- */
-.history-controls button:disabled {
-    background: #444;
-    color: #888;
-    cursor: not-allowed;
-}
-
-/* --- Action and End-Game panels --- */
-.action-buttons {
-    margin: 10px 0;
-    display: flex;
-    gap: 10px;
-}
-
+.history-controls button:hover { background: #666; }
+.history-controls button:disabled { background: #444; color: #888; cursor: not-allowed; }
+.action-buttons { margin: 10px 0; display: flex; gap: 10px; }
 .action-buttons button {
-    flex: 1; /* Allow buttons to grow and share space */
-    padding: 8px;
-    font-size: 14px;
-    color: #eee;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background-color 0.2s;
+    flex: 1; padding: 8px; font-size: 14px;
+    color: #eee; border: none; border-radius: 4px;
+    cursor: pointer; transition: background-color 0.2s;
 }
-
-#resign-btn {
-    background-color: #757575;
-}
-
-#resign-btn:hover {
-    background-color: #8E8E8E;
-}
-
-#draw-btn {
-    background-color: #757575;
-}
-
-#draw-btn:hover {
-    background-color: #8E8E8E;
-}
-
+#resign-btn, #draw-btn { background-color: #757575; }
+#resign-btn:hover, #draw-btn:hover { background-color: #8E8E8E; }
 .end-game-panel {
-    text-align: center;
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    text-align: center; flex-grow: 1; display: flex;
+    flex-direction: column; justify-content: center;
 }
-
-.end-game-panel h2 {
-    border-bottom: none;
-    margin-bottom: 5px;
-}
-.end-game-panel p {
-    color: #aaa;
-    margin-top: 0;
-    font-size: 0.9em;
-}
-
+.end-game-panel h2 { border-bottom: none; margin-bottom: 5px; }
+.end-game-panel p { color: #aaa; margin-top: 0; font-size: 0.9em; }
 .end-game-panel button {
-    width: 100%;
-    padding: 12px;
-    font-size: 16px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-bottom: 10px;
+    width: 100%; padding: 12px; font-size: 16px;
+    border: none; border-radius: 4px;
+    cursor: pointer; margin-bottom: 10px;
 }
-
-#rematch-btn {
-    background-color: #4CAF50;
-    color: white;
-}
-#rematch-btn:hover {
-    background-color: #5cb85c;
-}
-
-#new-game-btn {
-    background-color: #008cba;
-    color: white;
-}
-#new-game-btn:hover {
-    background-color: #009dce;
-}
-
-.analyze-text {
-    margin-top: 20px !important;
-    font-style: italic;
-}
-
-
-/* --- Styles for the Panel Header & Collapsible Content --- */
+#rematch-btn { background-color: #4CAF50; color: white; }
+#rematch-btn:hover { background-color: #5cb85c; }
+#new-game-btn { background-color: #008cba; color: white; }
+#new-game-btn:hover { background-color: #009dce; }
 .panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-  border-bottom: 1px solid #444;
-  padding-bottom: 10px;
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 15px; border-bottom: 1px solid #444; padding-bottom: 10px;
 }
-
-.panel-header h2 {
-  margin: 0;
-  font-size: 18px;
-  color: #eee;
-}
-
+.panel-header h2 { margin: 0; font-size: 18px; color: #eee; }
 #panel-toggle-btn {
-  background-color: #555;
-  color: #ddd;
-  border: none;
-  padding: 5px 15px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: none; /* Hidden by default on desktop */
+  background-color: #555; color: #ddd; border: none; padding: 5px 15px;
+  border-radius: 4px; cursor: pointer; display: none;
 }
-
-#panel-toggle-btn:hover {
-  background-color: #666;
-}
-
+#panel-toggle-btn:hover { background-color: #666; }
 .panel-content {
-  transition: all 0.3s ease-in-out;
-  overflow: hidden;
-  max-height: 1000px; /* A large value to ensure it's visible by default */
+  transition: all 0.3s ease-in-out; overflow: hidden; max-height: 1000px;
 }
+.panel-content.collapsed { max-height: 0; padding: 0; opacity: 0; margin: 0; }
 
-.panel-content.collapsed {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  margin: 0;
-}
-
-/* --- MOBILE RESPONSIVE STYLES --- */
 @media (max-width: 768px) {
-  /* Allow vertical scrolling on mobile */
-  html, body {
-      height: auto;
-      overflow: auto;
-  }
-  
-  main {
-    flex-direction: column;
-    height: auto;
-    padding: 10px;
-    align-items: stretch; /* Make children fill the width */
-  }
-
-  #game-container {
-    width: 95vw;
-    height: 95vw;
-    margin: 0 auto 20px auto; /* Center the game container */
-  }
-
-  #side-panel {
-    width: 100%;
-    margin-left: 0;
-    height: auto;
-  }
-
-  header {
-    position: static;
-    text-align: center;
-    padding: 10px 0;
-  }
-
-  h1 {
-    font-size: 20px;
-  }
-
-  /* Show the toggle button on mobile */
-  #panel-toggle-btn {
-    display: block;
-  }
+  html, body { height: auto; overflow: auto; }
+  main { flex-direction: column; height: auto; padding: 10px; align-items: stretch; }
+  #game-container { width: 95vw; height: 95vw; margin: 0 auto 20px auto; }
+  #side-panel { width: 100%; margin-left: 0; height: auto; }
+  header { position: static; text-align: center; padding: 10px 0; }
+  h1 { font-size: 20px; }
+  #panel-toggle-btn { display: block; }
 }
