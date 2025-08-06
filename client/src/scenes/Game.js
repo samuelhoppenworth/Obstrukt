@@ -32,7 +32,7 @@ export default class Game extends Phaser.Scene {
         this.gameConfig = {
             ...this.startupConfig,
             boardSize: boardSize, 
-            timePerPlayer: 5 * 60 * 1000,
+            timePerPlayer: this.startupConfig.timePerPlayer, // Use time from menu
             wallsPerPlayer: wallsPerPlayer,
             players: playersForGame, 
             colors: GAME_COLORS,
@@ -57,7 +57,6 @@ export default class Game extends Phaser.Scene {
 
     onStateUpdate(gameState, isHistoryView = false) {
         if (isHistoryView && Array.isArray(gameState)) {
-            // --- History View with Onion Skinning ---
             const historySlice = gameState;
             const focusedState = historySlice[0];
             this.latestGameState = focusedState;
@@ -76,7 +75,6 @@ export default class Game extends Phaser.Scene {
             this.uiManager.updateTimers(focusedState.timers);
             
         } else {
-            // --- Live View (Single State) ---
             this.latestGameState = gameState;
             const renderOptions = {
                 perspective: 'p1',
@@ -97,7 +95,6 @@ export default class Game extends Phaser.Scene {
             this.uiManager.updateTimers(gameState.timers);
         }
 
-        // --- Game End Logic (applies to both views) ---
         if (this.latestGameState.status === 'ended') {
             if (this.isGameOver) return;
             this.isGameOver = true;
@@ -112,9 +109,7 @@ export default class Game extends Phaser.Scene {
     }
     
     update(time, delta) {
-        if (this.orchestrator && this.orchestrator.update) {
-            this.orchestrator.update(delta);
-        }
+        // The orchestrator now handles its own timing, so this can remain empty.
     }
 
     shutdown() {
