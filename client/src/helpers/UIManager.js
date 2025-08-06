@@ -133,7 +133,7 @@ export default class UIManager {
 
     formatEndGameMessage(endState) {
         let result = "Game Over";
-        let message = "Game ended in a draw";
+        let message = "The game has ended.";
 
         if (endState.winner) {
             let winnerName = endState.winner;
@@ -142,19 +142,29 @@ export default class UIManager {
             
             result = `${winnerName} WINS`;
             switch(endState.reason) {
-                case 'goal': message = `${winnerName} reached goal`; break;
-                case 'timeout': message = `Opponent ran out of time`; break;
-                case 'resignation': message = `Opponent resigned`; break;
-                case 'disconnection': message = `Opponent disconnected`; break;
-                case 'last player standing': message = `${winnerName} is the last player standing`; break;
-                default: message = `${winnerName} is victorious`;
+                case 'goal': message = `${winnerName} reached the goal.`; break;
+                case 'timeout': message = `Opponent ran out of time.`; break;
+                case 'resignation': message = `Opponent resigned.`; break;
+                case 'disconnection': message = `Opponent disconnected.`; break;
+                case 'last player standing': message = `${winnerName} is the last player standing.`; break;
+                default: message = `${winnerName} is victorious!`;
             }
         } else {
-            if (endState.reason === 'draw by agreement') {
-                message = 'Draw by agreement.';
-            } else if (endState.reason === 'terminated') {
-                result = "Game Terminated";
-                message = "Match ended by user";
+            result = "Draw"; // Default result for draws
+            switch (endState.reason) {
+                case 'draw by agreement':
+                    message = 'Draw by agreement.';
+                    break;
+                case 'draw by repetition':
+                    message = 'Draw by three-fold repetition.';
+                    break;
+                case 'terminated':
+                    result = "Game Terminated";
+                    message = "The AI vs AI match was ended by the user.";
+                    break;
+                default:
+                    message = 'The game ended in a draw.';
+                    break;
             }
         }
         return { result, message };
@@ -171,29 +181,22 @@ export default class UIManager {
             playerUI.container.classList.toggle('active-turn', playerId === gameState.playerTurn);
             playerUI.container.style.opacity = activePlayers.includes(playerId) ? '1' : '0.4';
         }
-
-        // --- FEATURE LOGIC: Update action buttons based on player types ---
         this.updateActionButtons(gameState);
     }
     
     updateActionButtons(gameState) {
         const resignBtn = document.getElementById('resign-btn');
         if (!resignBtn) return;
-
         const activePlayerTypes = gameState.activePlayerIds.map(id => this.scene.gameConfig.playerTypes[id]);
         const allAIs = activePlayerTypes.every(type => type === 'ai');
-
         if (allAIs) {
             if (resignBtn.textContent !== "Terminate Game") {
                 resignBtn.textContent = "Terminate Game";
-                // Remove old listener and add the new one
                 const newBtn = resignBtn.cloneNode(true);
                 resignBtn.parentNode.replaceChild(newBtn, resignBtn);
                 newBtn.addEventListener('click', () => this.scene.events.emit('terminate-request'));
             }
         } else {
-            // This handles the case where a human player resigns, making the rest AI players.
-            // Or, more simply, it just ensures the button is correct if not all are AIs.
             if (resignBtn.textContent !== "Resign") {
                  this.showDefaultActions(this.scene.gameConfig);
             }
@@ -219,12 +222,10 @@ export default class UIManager {
     updateHistoryButtons(index, maxIndex) {
         const atStart = (index <= 0);
         const atEnd = (index >= maxIndex);
-
         const startBtn = document.getElementById('hist-start');
         const prevBtn = document.getElementById('hist-prev');
         const nextBtn = document.getElementById('hist-next');
         const endBtn = document.getElementById('hist-end');
-        
         if(startBtn) startBtn.disabled = atStart;
         if(prevBtn) prevBtn.disabled = atStart;
         if(nextBtn) nextBtn.disabled = atEnd;
