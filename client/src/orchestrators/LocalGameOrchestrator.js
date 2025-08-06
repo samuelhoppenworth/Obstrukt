@@ -12,7 +12,7 @@ export default class LocalGameOrchestrator {
         this.viewingHistoryIndex = -1;
         this.controllers = {};
         this.isAIThinking = false;
-        this.timerInterval = null; // To hold the setInterval reference
+        this.timerInterval = null;
 
         const initialState = this.#createInitialState();
         initialState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
@@ -38,29 +38,22 @@ export default class LocalGameOrchestrator {
         this.scene.events.on('wall-hover-out', () => this.scene.renderer.clearWallHighlight());
         this.scene.events.on('history-navigate', this.navigateHistory, this);
         this.scene.events.on('resign-request', this.handleResignation, this);
+        this.scene.events.on('terminate-request', this.handleTermination, this); // Listen for new event
         this.scene.events.on('human-action-input', (move) => this._handleHumanMove(move));
         
         this.scene.onStateUpdate(this.getGameState());
         this.scene.uiManager.updateHistoryButtons(this.viewingHistoryIndex, this.history.length - 1);
 
-        // --- Start the game's background processes ---
         this._startTimers();
         this._requestNextMove();
     }
 
-    onStateUpdated(gameState) {
-        // This function is now just an event hook for the UI. The core logic is in `update`.
-    }
-
-    // The update loop is now only for potential future uses, not core game logic.
+    onStateUpdated(gameState) {}
     update(delta) {}
 
     _handleHumanMove(move) {
         const baseState = this.history[this.viewingHistoryIndex];
-        if (baseState.status !== 'active') return;
-
-        // BUG FIX: Only process input if it's actually a human's turn.
-        if (this.config.playerTypes[baseState.playerTurn] !== 'human') {
+        if (baseState.status !== 'active' || this.config.playerTypes[baseState.playerTurn] !== 'human') {
             return;
         }
 
@@ -69,7 +62,7 @@ export default class LocalGameOrchestrator {
         }
 
         this._applyAndCommitMove(baseState, move);
-        this._requestNextMove(); // After human moves, request the next (likely AI) move.
+        this._requestNextMove();
     }
 
     _handleAIMove(move) {
@@ -77,12 +70,11 @@ export default class LocalGameOrchestrator {
         if (baseState.status !== 'active') return;
 
         this._applyAndCommitMove(baseState, move);
-        this._requestNextMove(); // After AI moves, request the next move in the chain.
+        this._requestNextMove();
     }
     
     _requestNextMove() {
         const currentState = this.getCurrentGameState();
-        // Don't do anything if the game is over, we are browsing history, or an AI is already thinking.
         if (currentState.status !== 'active' || this.isViewingHistory() || this.isAIThinking) {
             return;
         }
@@ -94,9 +86,7 @@ export default class LocalGameOrchestrator {
             this.isAIThinking = true;
             
             currentController.getMove().then(move => {
-                this.isAIThinking = false; // Free up the lock first
-
-                // If the state changed while thinking (e.g., user resigned), abort.
+                this.isAIThinking = false;
                 if (this.getCurrentGameState().playerTurn !== currentPlayerId || this.getCurrentGameState().status !== 'active') {
                     return;
                 }
@@ -125,14 +115,10 @@ export default class LocalGameOrchestrator {
     }
 
     _startTimers() {
-        if (this.timerInterval) {
-            clearInterval(this.timerInterval);
-        }
+        if (this.timerInterval) clearInterval(this.timerInterval);
 
         this.timerInterval = setInterval(() => {
-            if (this.isViewingHistory() || this.scene.isGameOver) {
-                return;
-            }
+            if (this.isViewingHistory() || this.scene.isGameOver) return;
 
             const currentState = this.getCurrentGameState();
             if (currentState.status !== 'active') return;
@@ -156,6 +142,27 @@ export default class LocalGameOrchestrator {
         if (this.config.playerTypes[currentPlayerId] === 'human') this.handlePlayerLoss(currentPlayerId, 'resignation');
     }
 
+    // --- NEW: Function to handle game termination ---
+    handleTermination() {
+        const currentState = this.getCurrentGameState();
+        if (currentState.status !== 'active') return;
+
+        const areAllAIs = currentState.activePlayerIds.every(id => this.config.playerTypes[id] === 'ai');
+        if (!areAllAIs) {
+            console.warn("Termination requested, but a human player is still active.");
+            return;
+        }
+
+        const newGameState = {
+            ...currentState,
+            status: 'ended',
+            winner: null,
+            reason: 'terminated' // New reason for the UI
+        };
+
+        this.#commitNewGameState(newGameState);
+    }
+
     handlePlayerLoss(losingPlayerId, reason) {
         const currentState = this.getCurrentGameState();
         if (currentState.status !== 'active') return;
@@ -170,7 +177,6 @@ export default class LocalGameOrchestrator {
                 );
             }
             this.#commitNewGameState(newGameState);
-            // After a player is removed, immediately check if the new player is an AI
             this._requestNextMove();
         }
     }
@@ -181,7 +187,6 @@ export default class LocalGameOrchestrator {
 
     onWallHoverIn(wallProps) {
         const currentState = this.getCurrentGameState();
-        // BUG FIX: Only process hover if it's a human's turn and not in history view.
         if (this.isViewingHistory() || this.config.playerTypes[currentState.playerTurn] !== 'human') {
             return;
         }
@@ -211,15 +216,12 @@ export default class LocalGameOrchestrator {
 
         if (newIndex !== previousViewingIndex) {
             this.viewingHistoryIndex = newIndex;
-            
             const isNowViewingHistory = this.isViewingHistory();
 
             if (!isNowViewingHistory) {
-                // If we returned to the present, show the live state and trigger the next move if needed.
                 this.scene.onStateUpdate(this.getCurrentGameState(), false);
                 this._requestNextMove();
             } else {
-                // Otherwise, show the history slice for onion skinning
                 const onionSkinDepth = 2;
                 const historySlice = this.history.slice(this.viewingHistoryIndex, this.viewingHistoryIndex + onionSkinDepth);
                 this.scene.onStateUpdate(historySlice, true);
@@ -255,13 +257,13 @@ export default class LocalGameOrchestrator {
     }
 
     destroy() {
-        if (this.timerInterval) {
-            clearInterval(this.timerInterval);
-        }
+        if (this.timerInterval) clearInterval(this.timerInterval);
+        
         this.scene.events.off('wall-hover-in', this.onWallHoverIn, this);
         this.scene.events.off('wall-hover-out');
         this.scene.events.off('history-navigate', this.navigateHistory, this);
         this.scene.events.off('resign-request', this.handleResignation, this);
+        this.scene.events.off('terminate-request', this.handleTermination, this); // Clean up new listener
         this.scene.events.off('human-action-input');
         Object.values(this.controllers).forEach(c => c.destroy());
     }
