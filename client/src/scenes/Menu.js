@@ -13,7 +13,7 @@ export default class Menu extends Phaser.Scene {
         sidePanel.innerHTML = `
             <div class="panel-section menu-panel">
                 <div class="setting-group">
-                    <h3>Game Settings</h3>
+                    <h3>Match Settings</h3>
                     <div class="setting-row">
                         <label>Board Size</label>
                         <div class="segmented-control" id="board-size-control">
@@ -36,6 +36,10 @@ export default class Menu extends Phaser.Scene {
                      <div class="setting-row-note">
                         <p id="time-warning-message" class="time-warning"></p>
                     </div>
+                </div>
+
+                <div class="setting-group">
+                    <h3>Player Settings</h3>
                     <div class="setting-row">
                         <label>Players</label>
                         <div class="segmented-control" id="num-players-control">
@@ -43,10 +47,6 @@ export default class Menu extends Phaser.Scene {
                             <button data-value="4">4</button>
                         </div>
                     </div>
-                </div>
-
-                <div class="setting-group">
-                    <h3>Player Options</h3>
                     <div class="player-setup-table" id="player-types-container">
                         <!-- Player type selectors are dynamically added here -->
                     </div>
@@ -59,7 +59,7 @@ export default class Menu extends Phaser.Scene {
             numPlayers: 2,
             boardSize: 9,
             timePerPlayer: 5,
-            players: {} // Object to store individual player settings
+            players: {}
         };
 
         const startButton = document.getElementById('start-game-btn');
@@ -69,9 +69,7 @@ export default class Menu extends Phaser.Scene {
         this.setupSegmentedControl('time-control-control', 'timePerPlayer');
 
         startButton.addEventListener('click', () => {
-            // Save settings one last time to capture any final changes
             this._savePlayerSettings();
-
             const playersForGame = this.settings.numPlayers === 2
                 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
                 : ALL_PLAYERS.slice(0, 4);
@@ -79,7 +77,6 @@ export default class Menu extends Phaser.Scene {
             const playerTypes = {};
             const playerDifficulties = {};
             
-            // Read from the saved settings to build the config
             playersForGame.forEach(player => {
                 const playerConfig = this.settings.players[player.id];
                 if (playerConfig) {
@@ -103,7 +100,6 @@ export default class Menu extends Phaser.Scene {
         this.updateUI();
     }
 
-    // Reads the current player settings from the DOM and saves them to the settings object
     _savePlayerSettings() {
         const playerRows = document.querySelectorAll('.player-config-row');
         playerRows.forEach(row => {
@@ -124,7 +120,6 @@ export default class Menu extends Phaser.Scene {
         const container = document.getElementById(containerId);
         container.addEventListener('click', (event) => {
             if (event.target.tagName === 'BUTTON') {
-                // Save player settings before redrawing the UI
                 this._savePlayerSettings();
                 
                 const value = parseInt(event.target.dataset.value, 10);
@@ -166,7 +161,7 @@ export default class Menu extends Phaser.Scene {
             showWarning = true;
         }
         
-        warningEl.textContent = showWarning ? 'High-depth AIs may be too slow with these setting.' : '';
+        warningEl.textContent = showWarning ? 'High-depth AIs may time out with this setting.' : '';
     }
 
     generatePlayerTypeSelectors(numPlayers) {
@@ -177,15 +172,14 @@ export default class Menu extends Phaser.Scene {
         playersForGame.forEach((player, index) => {
             const playerColors = { p1: 'Red', p2: 'Green', p3: 'Purple', p4: 'Blue' };
             const playerName = playerColors[player.id];
-
-            // Get saved settings for this player, or use defaults if none exist
+            
             const savedSettings = this.settings.players[player.id];
             const initialType = savedSettings ? savedSettings.type : (index !== 0 ? 'ai' : 'human');
             const initialDifficulty = savedSettings ? savedSettings.difficulty : 2;
 
             const playerRow = document.createElement('div');
             playerRow.className = 'player-config-row';
-            playerRow.dataset.playerId = player.id; // Add dataset for easy lookup
+            playerRow.dataset.playerId = player.id;
             
             playerRow.innerHTML = `
                 <div class="player-name-label">${playerName}</div>
@@ -195,7 +189,7 @@ export default class Menu extends Phaser.Scene {
                     <input type="radio" id="${player.id}-ai" name="${player.id}-type" value="ai" ${initialType === 'ai' ? 'checked' : ''}>
                     <label for="${player.id}-ai">AI</label>
                 </div>
-                <div class="player-difficulty-selector">
+                <div class="player-difficulty-selector" data-tooltip="AI search depth. Higher is stronger but takes more time.">
                     <select id="${player.id}-difficulty">
                         <option value="2" ${initialDifficulty === 2 ? 'selected' : ''}>Depth 2</option>
                         <option value="4" ${initialDifficulty === 4 ? 'selected' : ''}>Depth 4</option>
