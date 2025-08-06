@@ -10,6 +10,7 @@ const config = {
         createContainer: true
     },
     backgroundColor: '#3d3d3d', 
+    pauseOnBlur: false,
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
