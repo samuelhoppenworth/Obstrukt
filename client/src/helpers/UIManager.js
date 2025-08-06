@@ -160,7 +160,7 @@ export default class UIManager {
                     break;
                 case 'terminated':
                     result = "Game Terminated";
-                    message = "The AI vs AI match was ended by the user.";
+                    message = "Match ended by  user.";
                     break;
                 default:
                     message = 'The game ended in a draw.';
