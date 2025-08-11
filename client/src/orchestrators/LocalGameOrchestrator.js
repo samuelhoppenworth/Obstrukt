@@ -54,9 +54,6 @@ export default class LocalGameOrchestrator {
         this._requestNextMove();
     }
 
-    onStateUpdated(gameState) {}
-    update(delta) {}
-
     _handleHumanMove(move) {
         const baseState = this.history[this.viewingHistoryIndex];
         if (baseState.status !== 'active' || this.config.playerTypes[baseState.playerTurn] !== 'human') {
@@ -75,7 +72,6 @@ export default class LocalGameOrchestrator {
 
     _handleAIMove(move) {
         const baseState = this.getCurrentGameState();
-        if (baseState.status !== 'active') return;
 
         this._applyAndCommitMove(baseState, move);
         this._requestNextMove();
