@@ -102,7 +102,7 @@ export default class UIManager {
         if (!actionContainer) return;
         actionContainer.innerHTML = `<p style="text-align: center;"><i>Draw offer sent. Waiting for response...</i></p>`;
     }
-    
+
     showEndGameUI(endState) {
         const { result, message } = this.formatEndGameMessage(endState);
         this.sidePanel.innerHTML = `
@@ -117,8 +117,8 @@ export default class UIManager {
                 <button id="hist-next">›</button> <button id="hist-end">»</button>
             </div>
         `;
-        document.getElementById('rematch-btn').addEventListener('click', () => this.scene.scene.start('Game', this.scene.startupConfig));
-        document.getElementById('new-game-btn').addEventListener('click', () => this.scene.scene.start('Menu'));
+        document.getElementById('rematch-btn').addEventListener('click', () => this.scene.events.emit('rematch-requested'));
+        document.getElementById('new-game-btn').addEventListener('click', () => this.scene.events.emit('new-game-requested'));
         this.addHistoryButtonListeners();
     }
     

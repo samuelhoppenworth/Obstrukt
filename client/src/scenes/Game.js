@@ -18,7 +18,7 @@ export default class Game extends Phaser.Scene {
         this.uiManager = new UIManager(this);
 
         const numPlayers = this.startupConfig.numPlayers;
-        const boardSize = this.startupConfig.boardSize || 9;
+        const boardSize = this.startupConfig.boardSize;
         const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
 
         let wallsPerPlayer;
@@ -32,7 +32,6 @@ export default class Game extends Phaser.Scene {
         this.gameConfig = {
             ...this.startupConfig,
             boardSize: boardSize, 
-            timePerPlayer: this.startupConfig.timePerPlayer, // Use time from menu
             wallsPerPlayer: wallsPerPlayer,
             players: playersForGame, 
             colors: GAME_COLORS,
@@ -51,8 +50,29 @@ export default class Game extends Phaser.Scene {
         this.input.keyboard.on('keydown-RIGHT', () => this.events.emit('history-navigate', 'next'));
         this.input.keyboard.on('keydown-UP', () => this.events.emit('history-navigate', 'end'));
         this.input.keyboard.on('keydown-DOWN', () => this.events.emit('history-navigate', 'start'));
+        
+        this.events.once('rematch-requested', () => this.handleRematch());
+        this.events.once('new-game-requested', () => this.handleNewGame());
+
+        this.sys.events.once(Phaser.Scenes.Events.DESTROY, this.shutdown, this);
 
         this.orchestrator.initialize();
+    }
+
+    handleRematch() {
+        if (this.orchestrator) {
+            this.orchestrator.destroy();
+            this.orchestrator = null;
+        }
+        this.scene.start('Game', this.startupConfig);
+    }
+
+    handleNewGame() {
+        if (this.orchestrator) {
+            this.orchestrator.destroy();
+            this.orchestrator = null;
+        }
+        this.scene.start('Menu');
     }
 
     onStateUpdate(gameState, isHistoryView = false) {
@@ -102,19 +122,12 @@ export default class Game extends Phaser.Scene {
             this.uiManager.showEndGameUI(this.latestGameState);
             return;
         }
-        
-        if (!isHistoryView) {
-            this.orchestrator.onStateUpdated(gameState);
-        }
     }
     
-    update(time, delta) {
-        // The orchestrator now handles its own timing, so this can remain empty.
-    }
-
     shutdown() {
         if (this.orchestrator) {
             this.orchestrator.destroy();
+            this.orchestrator = null;
         }
     }
 }
