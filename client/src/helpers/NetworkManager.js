@@ -8,7 +8,11 @@ export default class NetworkManager {
     }
 
     connect() {
+        // Prevent creating multiple sockets if connect is called more than once
+        if (this.socket) return;
+
         this.socket = io('http://localhost:3000');
+        
         this.socket.on('connect', () => console.log('Connected to server:', this.socket.id));
         this.socket.on('waiting', (message) => this.scene.events.emit('network-waiting', message));
         this.socket.on('gameStart', (data) => this.scene.events.emit('network-game-start', data));
@@ -41,5 +45,12 @@ export default class NetworkManager {
 
     sendDrawResponse(accepted) {
         if (this.socket) this.socket.emit('respondToDraw', { accepted });
+    }
+
+    destroy() {
+        if (this.socket) {
+            this.socket.disconnect();            
+            this.socket = null;
+        }
     }
 }
