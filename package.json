@@ -1,7 +1,7 @@
 {
   "name": "obstrukt",
   "version": "1.0.0",
-  "description": "2-player game of obstrukt",
+  "description": "A Game of Obstruktion",
   "main": "server/server.js",
   "type": "module",
   "scripts": {
