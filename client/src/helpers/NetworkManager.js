@@ -11,7 +11,8 @@ export default class NetworkManager {
         // Prevent creating multiple sockets if connect is called more than once
         if (this.socket) return;
 
-        this.socket = io('http://localhost:3000');
+        const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3000';
+        this.socket = io(serverUrl);
         
         this.socket.on('connect', () => console.log('Connected to server:', this.socket.id));
         this.socket.on('waiting', (message) => this.scene.events.emit('network-waiting', message));
