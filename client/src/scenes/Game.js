@@ -1,6 +1,7 @@
 // src/scenes/Game.js
 import UIManager from "../helpers/UIManager.js";
 import LocalGameOrchestrator from '../orchestrators/LocalGameOrchestrator.js';
+import OnlineGameOrchestrator from '../orchestrators/OnlineGameOrchestrator.js';
 import { ALL_PLAYERS, GAME_COLORS } from '../config/gameConfig.js';
 import Renderer from "../helpers/Renderer.js";
 import InputHandler from "../helpers/InputHandler.js";
@@ -13,10 +14,26 @@ export default class Game extends Phaser.Scene {
         this.isGameOver = false;
         this.latestGameState = null;
         this.orchestrator = null;
+        this.renderer = null;
+        this.inputHandler = null;
         this.gameConfig = {};
         
         this.uiManager = new UIManager(this);
 
+        if (this.startupConfig.gameType === 'online') {
+            this.orchestrator = new OnlineGameOrchestrator(this, this.startupConfig);
+        } else {
+            this.initializeLocalGame();
+        }
+
+        this.events.once('rematch-requested', () => this.handleRematch());
+        this.events.once('new-game-requested', () => this.handleNewGame());
+        this.sys.events.once(Phaser.Scenes.Events.DESTROY, this.shutdown, this);
+
+        this.orchestrator.initialize();
+    }
+    
+    initializeLocalGame() {
         const numPlayers = this.startupConfig.numPlayers;
         const boardSize = this.startupConfig.boardSize;
         const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
@@ -50,13 +67,6 @@ export default class Game extends Phaser.Scene {
         this.input.keyboard.on('keydown-RIGHT', () => this.events.emit('history-navigate', 'next'));
         this.input.keyboard.on('keydown-UP', () => this.events.emit('history-navigate', 'end'));
         this.input.keyboard.on('keydown-DOWN', () => this.events.emit('history-navigate', 'start'));
-        
-        this.events.once('rematch-requested', () => this.handleRematch());
-        this.events.once('new-game-requested', () => this.handleNewGame());
-
-        this.sys.events.once(Phaser.Scenes.Events.DESTROY, this.shutdown, this);
-
-        this.orchestrator.initialize();
     }
 
     handleRematch() {
@@ -64,6 +74,8 @@ export default class Game extends Phaser.Scene {
             this.orchestrator.destroy();
             this.orchestrator = null;
         }
+        // Instead of calling shutdown manually, we let the scene manager do it.
+        // We just need to make sure our shutdown function is complete.
         this.scene.start('Game', this.startupConfig);
     }
 
@@ -76,40 +88,48 @@ export default class Game extends Phaser.Scene {
     }
 
     onStateUpdate(gameState, isHistoryView = false) {
+        if (!this.renderer) {
+            return;
+        }
+        
+        const perspective = this.localPlayerRole || 'p1';
+
         if (isHistoryView && Array.isArray(gameState)) {
             const historySlice = gameState;
             const focusedState = historySlice[0];
             this.latestGameState = focusedState;
 
             const renderOptions = {
-                perspective: 'p1',
+                perspective: perspective,
                 shouldShowHighlights: false,
                 onionSkinStates: historySlice 
             };
             
-            if (this.renderer) {
-                this.renderer.drawGameState(focusedState, renderOptions);
-                this.renderer.toggleHistoryOverlay(true);
-            }
+            this.renderer.drawGameState(focusedState, renderOptions);
+            this.renderer.toggleHistoryOverlay(true);
             this.uiManager.updatePlayerInfo(focusedState);
             this.uiManager.updateTimers(focusedState.timers);
             
         } else {
             this.latestGameState = gameState;
             const renderOptions = {
-                perspective: 'p1',
+                perspective: perspective,
                 shouldShowHighlights: false,
             };
 
             const currentPlayerId = gameState.playerTurn;
-            if (!isHistoryView && currentPlayerId && this.gameConfig.playerTypes[currentPlayerId] === 'human') {
+            const playerConfig = this.gameConfig?.playerTypes;
+            
+            const isMyTurn = this.startupConfig.gameType === 'online' 
+                ? currentPlayerId === this.localPlayerRole 
+                : playerConfig && playerConfig[currentPlayerId] === 'human';
+
+            if (!isHistoryView && isMyTurn) {
                 renderOptions.shouldShowHighlights = true;
             }
 
-            if (this.renderer) {
-                this.renderer.drawGameState(gameState, renderOptions);
-                this.renderer.toggleHistoryOverlay(isHistoryView);
-            }
+            this.renderer.drawGameState(gameState, renderOptions);
+            this.renderer.toggleHistoryOverlay(isHistoryView);
             
             this.uiManager.updatePlayerInfo(gameState);
             this.uiManager.updateTimers(gameState.timers);
@@ -125,9 +145,24 @@ export default class Game extends Phaser.Scene {
     }
     
     shutdown() {
+        // Remove Phaser-level event listeners
+        this.input.keyboard.off('keydown-LEFT');
+        this.input.keyboard.off('keydown-RIGHT');
+        this.input.keyboard.off('keydown-UP');
+        this.input.keyboard.off('keydown-DOWN');
+
+        // Destroy our custom components
         if (this.orchestrator) {
             this.orchestrator.destroy();
             this.orchestrator = null;
+        }
+        if (this.renderer) {
+            this.renderer.destroy();
+            this.renderer = null;
+        }
+        if (this.inputHandler) {
+            this.inputHandler.destroy();
+            this.inputHandler = null;
         }
     }
 }
