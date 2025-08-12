@@ -1,69 +1,52 @@
 // src/config/gameConfig.js
 
 const PALETTE = {
-    green: "#4CAF50",
-    pink: "#E91E63",
-    blue: "#2196F3",
-    orange: "#FF9800",
+    green: 0x4CAF50,       
+    pink: 0xE91E63,        
+    blue: 0x2196F3,        
+    orange: 0xFF9800,      
     
-    // Background
-    darkGrey: "#3d3d3d",
+    brownGrey: 0x8D6E63,   
+    lightGrey: 0xE0E0E0,   
+    lightGreen: 0x8BC34A,  
+    red: 0xF44336,
+    darkGrey: 0x3d3d3d,
 
-    // Neutrals & Board
-    brownGrey: "#8D6E63",
-    lightGrey: "#E0E0E0",
-    lightGreen: "#8BC34A",
-    red: "#F44336",
+    emerald: 0x66BB6A,     
+    purple: 0xa970ff,      
+    skyBlue: 0x4FC3F7,     
+    coral: 0xFF7043,
+    indigo: 0x5C6BC0,
+    forestGreen: 0x2E7D32,
 
-    emerald: "#66BB6A",
-    purple: "#a970ff",
-    skyBlue: "#4FC3F7",
-    coral: "#FF7043",
-    indigo: "#5C6BC0",
-    forestGreen: "#2E7D32",
+    deepTeal: 0x00796B,
+    crimson: 0xC62828,
+    royalPurple: 0x6A1B9A,
+    burntOrange: 0xEF6C00,
+    midnightBlue: 0x283593,
+    slateIndigo: 0x3949AB,
+    brass: 0xD4AF37,
+    oliveGreen: 0x558B2F,
 
-    deepTeal: "#00796B",
-    crimson: "#C62828",
-    royalPurple: "#6A1B9A",
-    burntOrange: "#EF6C00",
-    midnightBlue: "#283593",
-    slateIndigo: "#3949AB",
-    brass: "#D4AF37",
-    oliveGreen: "#558B2F",
-
-    walnut: "#5D4037",
-    steelGray: "#455A64",
-    charcoal: "#37474F",
-    rust: "#8D6E63",
-    clay: "#795548",
-    graphite: "#263238",
-
-    darkBrown: "#5D4037",
-    warmBrown: "#795548",
-    mossGreen: "#8A9A5B",
-    paleGreen: "#B3C59D",
-
-    brightRed: "#C62828",
-    softOrange: "#FF7043",
-    deepPurple: "#6A1B9A",
-    brightBlue: "#4FC3F7",
-
-    freshGreen: "#8BC34A",
-    strongRed: "#F44336"
+    walnut: 0x5D4037,   
+    steelGray: 0x455A64,
+    charcoal: 0x37474F, 
+    rust: 0x8D6E63,     
+    clay: 0x795548,     
+    graphite: 0x263238  
 };
 
-
 export const ALL_PLAYERS = [
-    { id: 'p1', startPos: (bS) => ({ row: bS - 1, col: Math.floor(bS / 2) }), goalCondition: (r, c, bS) => r === 0, color: PALETTE.brightRed },
-    { id: 'p2', startPos: (bS) => ({ row: Math.floor(bS / 2), col: bS - 1 }), goalCondition: (r, c, bS) => c === 0, color: PALETTE.softOrange },
-    { id: 'p3', startPos: (bS) => ({ row: 0, col: Math.floor(bS / 2) }), goalCondition: (r, c, bS) => r === bS - 1, color: PALETTE.deepPurple },
-    { id: 'p4', startPos: (bS) => ({ row: Math.floor(bS / 2), col: 0 }), goalCondition: (r, c, bS) => c === bS - 1, color: PALETTE.brightBlue },
+    { id: 'p1', startPos: (bS) => ({ row: bS - 1, col: Math.floor(bS / 2) }), goalCondition: (r, c, bS) => r === 0, color: PALETTE.crimson },
+    { id: 'p2', startPos: (bS) => ({ row: Math.floor(bS / 2), col: bS - 1 }), goalCondition: (r, c, bS) => c === 0, color: PALETTE.oliveGreen },
+    { id: 'p3', startPos: (bS) => ({ row: 0, col: Math.floor(bS / 2) }), goalCondition: (r, c, bS) => r === bS - 1, color: PALETTE.royalPurple },
+    { id: 'p4', startPos: (bS) => ({ row: Math.floor(bS / 2), col: 0 }), goalCondition: (r, c, bS) => c === bS - 1, color: PALETTE.slateIndigo },
 ];
 
 export const GAME_COLORS = {
-    wall: PALETTE.oliveGreen,
+    wall: PALETTE.clay,
     board: PALETTE.lightGrey,
-    legalWall: PALETTE.oliveGreen,
+    legalWall: PALETTE.green,
     illegalWall: PALETTE.red,
     background: PALETTE.darkGrey
 };
