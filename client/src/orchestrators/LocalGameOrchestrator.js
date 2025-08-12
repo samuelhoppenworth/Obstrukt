@@ -15,13 +15,12 @@ export default class LocalGameOrchestrator {
         this.timerInterval = null;
         this.stateOccurrences = new Map(); // For three-fold repetition
 
-        const initialState = this.#createInitialState();
+        let initialState = GameLogic.createInitialState(this.config);
         initialState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
             initialState.pawnPositions, initialState.placedWalls,
             this.players, initialState.activePlayerIds, 0, this.config.boardSize
         );
 
-        // Record the first state
         const initialHash = this.#getGameStateHash(initialState);
         this.stateOccurrences.set(initialHash, 1);
 
@@ -62,7 +61,6 @@ export default class LocalGameOrchestrator {
 
         if (this.isViewingHistory()) {
             this.history.splice(this.viewingHistoryIndex + 1);
-            // If the timeline branches, the repetition counts must be rebuilt
             this.#rebuildStateOccurrences();
         }
 
@@ -72,7 +70,6 @@ export default class LocalGameOrchestrator {
 
     _handleAIMove(move) {
         const baseState = this.getCurrentGameState();
-
         this._applyAndCommitMove(baseState, move);
         this._requestNextMove();
     }
@@ -105,6 +102,7 @@ export default class LocalGameOrchestrator {
     _applyAndCommitMove(baseState, move) {
         if (move.type === 'pawn') move.type = 'cell';
         const newGameState = GameLogic.applyMove(baseState, move, this.players, this.config);
+        
         if (newGameState) {
             this.#commitNewGameState(newGameState);
         } else {
@@ -153,7 +151,9 @@ export default class LocalGameOrchestrator {
     handlePlayerLoss(losingPlayerId, reason) {
         const currentState = this.getCurrentGameState();
         if (currentState.status !== 'active') return;
+
         const newGameState = GameLogic.applyPlayerLoss(currentState, losingPlayerId, reason);
+
         if (currentState !== newGameState) {
             if (newGameState.status === 'active') {
                  newGameState.availablePawnMoves = GameLogic.calculateLegalPawnMoves(
@@ -173,7 +173,8 @@ export default class LocalGameOrchestrator {
     onWallHoverIn(wallProps) {
         const currentState = this.getCurrentGameState();
         if (this.isViewingHistory() || this.config.playerTypes[currentState.playerTurn] !== 'human') return;
-        const isLegal = GameLogic.isWallPlacementLegal(wallProps, this.getCurrentGameState(), this.players, this.config.boardSize);
+        
+        const isLegal = GameLogic.isWallPlacementLegal(wallProps, currentState, this.players, this.config.boardSize);
         this.scene.renderer.highlightWallSlot(wallProps, isLegal);
     }
 
@@ -232,20 +233,6 @@ export default class LocalGameOrchestrator {
             const count = (this.stateOccurrences.get(hash) || 0) + 1;
             this.stateOccurrences.set(hash, count);
         }
-    }
-
-    #createInitialState() {
-        return {
-            boardSize: this.config.boardSize,
-            status: 'active', winner: null, reason: null,
-            playerTurn: this.config.players[0].id,
-            pawnPositions: this.config.players.reduce((acc, p) => { acc[p.id] = p.startPos(this.config.boardSize); return acc; }, {}),
-            wallsLeft: this.config.players.reduce((acc, p) => { acc[p.id] = this.config.wallsPerPlayer; return acc; }, {}),
-            timers: this.config.players.reduce((acc, p) => { acc[p.id] = this.config.timePerPlayer; return acc; }, {}),
-            placedWalls: [],
-            activePlayerIds: this.config.players.map(p => p.id),
-            playerTurnIndex: 0,
-        };
     }
 
     #commitNewGameState(newGameState) {
