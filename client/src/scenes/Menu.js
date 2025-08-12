@@ -13,6 +13,17 @@ export default class Menu extends Phaser.Scene {
         sidePanel.innerHTML = `
             <div class="panel-section menu-panel">
                 <div class="setting-group">
+                    <h3>Game Mode</h3>
+                    <div class="setting-row">
+                        <label>Mode</label>
+                        <div class="segmented-control" id="game-type-control">
+                            <button data-value="local" class="active">Local</button>
+                            <button data-value="online">Online</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="setting-group" id="match-settings-group">
                     <h3>Match Settings</h3>
                     <div class="setting-row">
                         <label>Board Size</label>
@@ -38,7 +49,7 @@ export default class Menu extends Phaser.Scene {
                     </div>
                 </div>
 
-                <div class="setting-group">
+                <div class="setting-group" id="player-settings-group">
                     <h3>Player Settings</h3>
                     <div class="setting-row">
                         <label>Players</label>
@@ -56,6 +67,7 @@ export default class Menu extends Phaser.Scene {
         `;
         
         this.settings = {
+            gameType: 'local',
             numPlayers: 2,
             boardSize: 9,
             timePerPlayer: 5,
@@ -64,37 +76,45 @@ export default class Menu extends Phaser.Scene {
 
         const startButton = document.getElementById('start-game-btn');
         
-        this.setupSegmentedControl('num-players-control', 'numPlayers');
-        this.setupSegmentedControl('board-size-control', 'boardSize');
-        this.setupSegmentedControl('time-control-control', 'timePerPlayer');
+        this.setupSegmentedControl('game-type-control', 'gameType', false);
+        this.setupSegmentedControl('num-players-control', 'numPlayers', true);
+        this.setupSegmentedControl('board-size-control', 'boardSize', true);
+        this.setupSegmentedControl('time-control-control', 'timePerPlayer', true);
 
         startButton.addEventListener('click', () => {
-            this._savePlayerSettings();
-            const playersForGame = this.settings.numPlayers === 2
-                ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
-                : ALL_PLAYERS.slice(0, 4);
+            if (this.settings.gameType === 'local') {
+                this._savePlayerSettings();
+                const playersForGame = this.settings.numPlayers === 2
+                    ? [ALL_PLAYERS[0], ALL_PLAYERS[2]]
+                    : ALL_PLAYERS.slice(0, 4);
 
-            const playerTypes = {};
-            const playerDifficulties = {};
-            
-            playersForGame.forEach(player => {
-                const playerConfig = this.settings.players[player.id];
-                if (playerConfig) {
-                    playerTypes[player.id] = playerConfig.type;
-                    if (playerConfig.type === 'ai') {
-                        playerDifficulties[player.id] = playerConfig.difficulty;
+                const playerTypes = {};
+                const playerDifficulties = {};
+                
+                playersForGame.forEach(player => {
+                    const playerConfig = this.settings.players[player.id];
+                    if (playerConfig) {
+                        playerTypes[player.id] = playerConfig.type;
+                        if (playerConfig.type === 'ai') {
+                            playerDifficulties[player.id] = playerConfig.difficulty;
+                        }
                     }
-                }
-            });
-            
-            this.scene.start('Game', {
-                gameType: 'local',
-                numPlayers: this.settings.numPlayers,
-                playerTypes: playerTypes,
-                playerDifficulties: playerDifficulties,
-                boardSize: this.settings.boardSize,
-                timePerPlayer: this.settings.timePerPlayer * 60 * 1000
-            });
+                });
+                
+                this.scene.start('Game', {
+                    gameType: 'local',
+                    numPlayers: this.settings.numPlayers,
+                    playerTypes: playerTypes,
+                    playerDifficulties: playerDifficulties,
+                    boardSize: this.settings.boardSize,
+                    timePerPlayer: this.settings.timePerPlayer * 60 * 1000
+                });
+            } else { // Online game
+                this.scene.start('Game', {
+                    gameType: 'online',
+                    numPlayers: this.settings.numPlayers,
+                });
+            }
         });
 
         this.updateUI();
@@ -116,13 +136,13 @@ export default class Menu extends Phaser.Scene {
         });
     }
 
-    setupSegmentedControl(containerId, settingKey) {
+    setupSegmentedControl(containerId, settingKey, isNumeric = true) {
         const container = document.getElementById(containerId);
         container.addEventListener('click', (event) => {
             if (event.target.tagName === 'BUTTON') {
                 this._savePlayerSettings();
                 
-                const value = parseInt(event.target.dataset.value, 10);
+                const value = isNumeric ? parseInt(event.target.dataset.value, 10) : event.target.dataset.value;
                 this.settings[settingKey] = value;
                 
                 container.querySelector('.active').classList.remove('active');
@@ -134,9 +154,23 @@ export default class Menu extends Phaser.Scene {
     }
 
     updateUI() {
-        this.generatePlayerTypeSelectors(this.settings.numPlayers);
+        const isLocalGame = this.settings.gameType === 'local';
+        
+        document.getElementById('match-settings-group').style.display = isLocalGame ? 'block' : 'none';
+        document.getElementById('player-types-container').style.display = isLocalGame ? 'flex' : 'none';
+        
+        const playerSettingsHeader = document.querySelector('#player-settings-group h3');
+        playerSettingsHeader.textContent = isLocalGame ? 'Player Settings' : 'Online Match';
+        
+        const startButton = document.getElementById('start-game-btn');
+        startButton.textContent = isLocalGame ? 'Start Game' : `Find ${this.settings.numPlayers}-Player Game`;
+        
+        if (isLocalGame) {
+            this.generatePlayerTypeSelectors(this.settings.numPlayers);
+            this.updateTimeControlWarning();
+        }
+        
         this.updatePreview(this.settings.numPlayers, this.settings.boardSize);
-        this.updateTimeControlWarning();
     }
 
     updateTimeControlWarning() {
@@ -222,12 +256,17 @@ export default class Menu extends Phaser.Scene {
 
     updatePreview(numPlayers, boardSize) {
         if (this.renderer) this.renderer.destroy();
-        this.renderConfig = { boardSize, players: ALL_PLAYERS, colors: GAME_COLORS };
+        
+        const isLocalGame = this.settings.gameType === 'local';
+        const boardSizeToRender = isLocalGame ? boardSize : 9; // Default to 9x9 for online preview
+        
+        this.renderConfig = { boardSize: boardSizeToRender, players: ALL_PLAYERS, colors: GAME_COLORS };
         this.renderer = new Renderer(this, this.renderConfig);
+        
         const playersForGame = numPlayers === 2 ? [ALL_PLAYERS[0], ALL_PLAYERS[2]] : ALL_PLAYERS.slice(0, 4);
         let pawnPositions = {};
         playersForGame.forEach(player => {
-             pawnPositions[player.id] = player.startPos(boardSize);
+             pawnPositions[player.id] = player.startPos(boardSizeToRender);
         });
         const previewState = { pawnPositions, placedWalls: [], availablePawnMoves: [], status: 'menu' };
         this.renderer.drawGameState(previewState, { perspective: 'p1', shouldShowHighlights: false });
