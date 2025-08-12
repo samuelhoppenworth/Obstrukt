@@ -26,6 +26,16 @@ export default class Game extends Phaser.Scene {
             this.initializeLocalGame();
         }
 
+        this.events.on('history-navigate', (direction) => {
+            if (this.orchestrator) {
+                this.orchestrator.navigateHistory(direction);
+            }
+        });
+        this.input.keyboard.on('keydown-LEFT', () => this.events.emit('history-navigate', 'prev'));
+        this.input.keyboard.on('keydown-RIGHT', () => this.events.emit('history-navigate', 'next'));
+        this.input.keyboard.on('keydown-UP', () => this.events.emit('history-navigate', 'end'));
+        this.input.keyboard.on('keydown-DOWN', () => this.events.emit('history-navigate', 'start'));
+
         this.events.once('rematch-requested', () => this.handleRematch());
         this.events.once('new-game-requested', () => this.handleNewGame());
         this.sys.events.once(Phaser.Scenes.Events.DESTROY, this.shutdown, this);
@@ -62,28 +72,13 @@ export default class Game extends Phaser.Scene {
         this.inputHandler.setupInputListeners();
         
         this.uiManager.setupGameUI(this.gameConfig.players, this.orchestrator.getGameState().timers, this.gameConfig);
-        
-        this.input.keyboard.on('keydown-LEFT', () => this.events.emit('history-navigate', 'prev'));
-        this.input.keyboard.on('keydown-RIGHT', () => this.events.emit('history-navigate', 'next'));
-        this.input.keyboard.on('keydown-UP', () => this.events.emit('history-navigate', 'end'));
-        this.input.keyboard.on('keydown-DOWN', () => this.events.emit('history-navigate', 'start'));
     }
 
     handleRematch() {
-        if (this.orchestrator) {
-            this.orchestrator.destroy();
-            this.orchestrator = null;
-        }
-        // Instead of calling shutdown manually, we let the scene manager do it.
-        // We just need to make sure our shutdown function is complete.
         this.scene.start('Game', this.startupConfig);
     }
 
     handleNewGame() {
-        if (this.orchestrator) {
-            this.orchestrator.destroy();
-            this.orchestrator = null;
-        }
         this.scene.start('Menu');
     }
 
@@ -145,13 +140,12 @@ export default class Game extends Phaser.Scene {
     }
     
     shutdown() {
-        // Remove Phaser-level event listeners
+        this.events.off('history-navigate');
         this.input.keyboard.off('keydown-LEFT');
         this.input.keyboard.off('keydown-RIGHT');
         this.input.keyboard.off('keydown-UP');
         this.input.keyboard.off('keydown-DOWN');
 
-        // Destroy our custom components
         if (this.orchestrator) {
             this.orchestrator.destroy();
             this.orchestrator = null;
