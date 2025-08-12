@@ -42,10 +42,6 @@ export default class OnlineGameOrchestrator {
         });
     }
 
-    onStateUpdated(gameState) {
-        // Online flow is dictated entirely by the server, so the client does nothing here.
-    }
-
     onGameStart(data) {
         const scene = this.scene;
         const serverConfig = data.config;

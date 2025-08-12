@@ -72,7 +72,6 @@ export default class LocalGameOrchestrator {
 
     _handleAIMove(move) {
         const baseState = this.getCurrentGameState();
-
         this._applyAndCommitMove(baseState, move);
         this._requestNextMove();
     }
