@@ -75,10 +75,12 @@ export default class Game extends Phaser.Scene {
     }
 
     handleRematch() {
+        this.shutdown();
         this.scene.start('Game', this.startupConfig);
     }
 
     handleNewGame() {
+        this.shutdown();
         this.scene.start('Menu');
     }
 
