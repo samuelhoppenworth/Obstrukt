@@ -75,12 +75,10 @@ export default class InputHandler {
         switch (this.perspective) {
             case 'p2': // Rotated 90 degrees clockwise
                 if (viewOrientation === 'horizontal') {
-                    // A horizontal VIEW wall was originally a VERTICAL MODEL wall.
                     modelOrientation = 'vertical';
                     modelRow = (bS - 1) - viewCol;
                     modelCol = viewRow;
                 } else { // viewOrientation is 'vertical'
-                    // A vertical VIEW wall was originally a HORIZONTAL MODEL wall.
                     modelOrientation = 'horizontal';
                     modelRow = viewCol;
                     modelCol = (bS - 2) - viewRow;
@@ -93,23 +91,19 @@ export default class InputHandler {
                 break;
 
             case 'p4': // Rotated 270 degrees clockwise
-                // FIX: This section now has the correct inverse calculations.
                 if (viewOrientation === 'horizontal') {
-                    // A horizontal VIEW wall was originally a VERTICAL MODEL wall.
                     modelOrientation = 'vertical';
                     modelRow = viewCol;
-                    modelCol = (bS - 2) - viewRow; // Corrected from (bS - 1)
+                    modelCol = (bS - 2) - viewRow; 
                 } else { // viewOrientation is 'vertical'
-                    // A vertical VIEW wall was originally a HORIZONTAL MODEL wall.
                     modelOrientation = 'horizontal';
-                    modelRow = (bS - 1) - viewCol; // Corrected from (bS - 2)
+                    modelRow = (bS - 1) - viewCol; 
                     modelCol = viewRow;
                 }
                 break;
                 
             case 'p1':
             default:
-                // No transformation needed
                 break;
         }
         return { row: modelRow, col: modelCol, orientation: modelOrientation };
@@ -149,5 +143,12 @@ export default class InputHandler {
         }
         
         return null;
+    }
+    
+    destroy() {
+        if (this.scene && this.scene.input) {
+            this.scene.input.off('pointerdown', this.handlePointerDown, this);
+            this.scene.input.off('pointermove', this.handlePointerMove, this);
+        }
     }
 }
