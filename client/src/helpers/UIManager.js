@@ -160,7 +160,7 @@ export default class UIManager {
                     break;
                 case 'terminated':
                     result = "Game Terminated";
-                    message = "Match ended by  user.";
+                    message = "Match ended by user.";
                     break;
                 default:
                     message = 'The game ended in a draw.';
@@ -172,7 +172,10 @@ export default class UIManager {
 
     updatePlayerInfo(gameState) {
         if (!gameState || !this.playerInfoElements) return;
-        const activePlayers = Object.keys(gameState.pawnPositions).filter(id => gameState.pawnPositions[id].row !== -1);
+
+        // Use optional chaining for safety. Default to an empty array if pawnPositions is missing.
+        const activePlayers = Object.keys(gameState.pawnPositions ?? {}).filter(id => gameState.pawnPositions[id].row !== -1);
+        
         for (const playerId in this.playerInfoElements) {
             const playerUI = this.playerInfoElements[playerId];
             if (gameState.wallsLeft && gameState.wallsLeft[playerId] !== undefined) {
