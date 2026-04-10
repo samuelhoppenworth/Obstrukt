@@ -11,6 +11,7 @@
     "dev:server": "nodemon server/server.js",
     "build": "vite build",
     "benchmark": "node benchmark/benchmark.js",
+    "test": "vitest run",
     "postinstall": "npm run build"
   },
   "author": "",
@@ -23,6 +24,7 @@
   "devDependencies": {
     "concurrently": "^8.2.2",
     "nodemon": "^3.0.3",
-    "vite": "^5.0.12"
+    "vite": "^5.0.12",
+    "vitest": "^4.1.4"
   }
 }
